@@ -66,14 +66,53 @@ export function checkContributions(done, rows) {
 }
 
 /**
+ * Prima posizione libera: una riga "Ancora nessun contribuente", oppure, se la classifica è completa
+ * (somma dei PF = barra), quella subito sotto l'ultima riga. Da lì in giù sono tutte libere.
+ */
+function firstFreePosition(ranked, complete) {
+  const cands = ranked.filter((r) => Number(r.fp) === 0).map((r) => r.position);
+  if (complete && ranked.length) cands.push(Math.max(...ranked.map((r) => r.position)) + 1);
+  return cands.length ? Math.min(...cands) : null;
+}
+
+/**
+ * Posizioni che servono ancora per rispondere: quelle premiate non visibili e, se sei in una posizione
+ * premiata, quella subito sotto di te (per sapere se sei al sicuro). Dice anche da che parte scorrere.
+ * extra: altre posizioni richieste dal calcolo (needPosition delle righe "sconosciute").
+ */
+export function neededPositions(rows, rewards, { complete = false, extra = [] } = {}) {
+  const clean = rows.map((r) => ({ ...r, fp: r.fp === '' || r.fp == null ? 0 : Number(r.fp) }));
+  const ranked = clean.filter((r) => !(r.isOwner || r.position == null));
+  const visible = new Set(ranked.map((r) => r.position));
+  const firstFree = firstFreePosition(ranked, complete);
+  const need = new Set([...missingPositions(clean, rewards, { complete }).missing, ...extra]);
+  const me = ranked.find((r) => r.isMe && r.fp > 0);
+  let meNeed = null;
+  if (me && (rewards[me.position - 1] ?? 0) > 0) {
+    const below = me.position + 1;
+    if (!visible.has(below) && !(firstFree != null && below >= firstFree)) {
+      need.add(below);
+      meNeed = below;
+    }
+  }
+  for (const k of visible) need.delete(k);
+  const ks = [...need].sort((a, b) => a - b);
+  if (!ks.length) return { ks, direction: null, meNeed: null };
+  const lo = Math.min(...visible);
+  const hi = Math.max(...visible);
+  const up = ks.some((k) => k < lo);
+  const down = ks.some((k) => k > hi);
+  return { ks, direction: up && down ? 'both' : up ? 'up' : 'down', meNeed };
+}
+
+/**
  * Posizioni che danno un premio ma non si vedono nello screenshot, e da che parte scorrere per vederle.
  * Se è visibile una posizione libera, quelle sotto sono libere anche loro: non mancano.
  */
-export function missingPositions(rows, rewards) {
+export function missingPositions(rows, rewards, { complete = false } = {}) {
   const ranked = rows.filter((r) => !(r.isOwner || r.position == null));
   const visible = new Set(ranked.map((r) => r.position));
-  const free = ranked.filter((r) => Number(r.fp) === 0).map((r) => r.position);
-  const firstFree = free.length ? Math.min(...free) : null;
+  const firstFree = firstFreePosition(ranked, complete);
   const missing = [];
   rewards.forEach((reward, i) => {
     const k = i + 1;
@@ -103,12 +142,9 @@ export function evaluate(input) {
   const p = meRow ? meRow.position : null;
 
   const fpByPos = new Map();
-  let firstFree = null; // da qui in giù sono tutte libere
-  for (const c of ranked) {
-    if (c === meRow) continue;
-    fpByPos.set(c.position, c.fp);
-    if (c.fp === 0 && (firstFree == null || c.position < firstFree)) firstFree = c.position;
-  }
+  for (const c of ranked) if (c !== meRow) fpByPos.set(c.position, c.fp);
+  // da qui in giù sono tutte libere (riga vuota visibile, o classifica completa)
+  const firstFree = firstFreePosition(ranked, input.complete === true);
 
   // PF di chi occuperebbe la posizione k se io non ci fossi (undefined = non visibile)
   const othersAt = (k) => {

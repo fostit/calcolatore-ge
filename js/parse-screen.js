@@ -148,7 +148,8 @@ function parseRows(listLines, positionLines, height) {
     .sort((a, b) => a.cy - b.cy)
     .map((r) => ({
       position: r.position ?? null,
-      name: r.parts.sort((a, b) => a.y - b.y).map((p) => p.text).join(' '),
+      // un bordo della riga letto come "À", "l", "|" davanti al nome: lo tolgo
+      name: r.parts.sort((a, b) => a.y - b.y).map((p) => p.text).join(' ').replace(/^\S\s+(?=\S{2,})/u, ''),
       fp: r.fp,
       isOwner: r.position == null,
       isMe: false,

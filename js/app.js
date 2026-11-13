@@ -1,6 +1,6 @@
 // Collega l'interfaccia ai moduli di calcolo, dati e lettura.
 import { loadData, getLevel, arcPct, listGe } from './data.js';
-import { evaluate, rankingIssues, checkContributions, missingPositions } from './calc.js';
+import { evaluate, rankingIssues, checkContributions, neededPositions } from './calc.js';
 import { parseScreen, mergeScreens, markMe } from './parse-screen.js';
 import { getSettings, saveSettings } from './settings.js';
 // importato subito (non al primo uso): dopo un aggiornamento non si mescolano file vecchi e nuovi
@@ -9,6 +9,7 @@ import { readImage, getWorker, cropToDataUrl } from './ocr.js';
 const $ = (id) => document.getElementById(id);
 const VIEWS = ['home', 'busy', 'data', 'results'];
 const MAX_LEVEL = 100;
+const MAX_SHOTS = 8; // screenshot dello stesso GE letti insieme (classifiche lunghe)
 
 const state = {
   data: null,
@@ -90,7 +91,7 @@ function homeError(msg) {
 
 export async function handleFiles(files) {
   homeError('');
-  const chosen = files.slice(0, 2);
+  const chosen = files.slice(0, MAX_SHOTS);
   show('busy');
   try {
     $('busy-text').textContent = 'Preparo il lettore di testo…';
@@ -107,7 +108,7 @@ export async function handleFiles(files) {
     }
     const merged = mergeScreens(screens);
     if (merged.error) throw new Error(merged.error);
-    await startShotForm(merged, files.length > 2 ? 'Ho usato solo i primi due screenshot.' : null);
+    await startShotForm(merged, files.length > MAX_SHOTS ? `Ho usato solo i primi ${MAX_SHOTS} screenshot.` : null);
   } catch (err) {
     show('home');
     homeError(err.message || 'Non sono riuscito a leggere lo screenshot.');
@@ -119,26 +120,6 @@ const listPos = (ks) => {
   const names = ks.map((k) => `P${k}`);
   return names.length > 1 ? `${names.slice(0, -1).join(', ')} e ${names.at(-1)}` : names[0];
 };
-
-/** Posizioni da vedere ancora (premiate e non visibili, o quella sotto di te) e da che parte scorrere. */
-function neededPositions(rows, rewards, extra = []) {
-  const clean = rows.map((r) => ({ ...r, fp: toInt(r.fp) }));
-  const { missing } = missingPositions(clean, rewards);
-  const need = new Set([...missing, ...extra]);
-  const me = clean.find((r) => r.isMe && !r.isOwner && r.fp > 0);
-  const ranked = clean.filter((r) => !r.isOwner && r.position != null);
-  const visible = new Set(ranked.map((r) => r.position));
-  const free = ranked.filter((r) => r.fp === 0).map((r) => r.position);
-  const firstFree = free.length ? Math.min(...free) : null;
-  if (me && !visible.has(me.position + 1) && !(firstFree != null && me.position + 1 >= firstFree)) need.add(me.position + 1);
-  for (const k of visible) need.delete(k);
-  const ks = [...need].sort((a, b) => a - b);
-  const lo = visible.size ? Math.min(...visible) : Infinity;
-  const hi = visible.size ? Math.max(...visible) : -Infinity;
-  const up = ks.some((k) => k < lo);
-  const down = ks.some((k) => k > hi);
-  return { ks, direction: up && down ? 'both' : up ? 'up' : down ? 'down' : null, meNeed: me ? me.position + 1 : null };
-}
 
 function renderTodo(prefix, need) {
   const box = $(prefix + 'todo');
@@ -170,10 +151,10 @@ export async function addFiles(files) {
   const f = state.form;
   show('busy');
   try {
-    $('busy-text').textContent = 'Leggo lo screenshot aggiunto…';
+    $('busy-text').textContent = files.length > 1 ? `Leggo gli screenshot aggiunti…` : 'Leggo lo screenshot aggiunto…';
     await getWorker();
     const added = [];
-    for (const file of files.slice(0, 2)) {
+    for (const file of files.slice(0, MAX_SHOTS)) {
       const { raw, bitmap } = await readImage(file);
       const i = state.bitmaps.push(bitmap) - 1;
       const sc = parseScreen(raw, state.geList);
@@ -206,6 +187,12 @@ export async function addFiles(files) {
     $('data-error').textContent = err.message || 'Non sono riuscito a leggere lo screenshot aggiunto.';
     $('data-error').hidden = false;
   }
+}
+
+/** Somma dei PF visibili = PF versati: si vede tutta la classifica. */
+function isComplete(f) {
+  if (f.done === '') return false;
+  return checkContributions(Number(f.done), f.rows.map((r) => ({ ...r, fp: toInt(r.fp) }))).status === 'complete';
 }
 
 async function cropOf(part) {
@@ -356,7 +343,7 @@ function renderCheck() {
       else if (c.status !== 'partial') problems.push(`La somma dei PF in classifica (${c.sum}) non torna con i PF versati (${c.done}): c'è un numero letto male. Controlla le righe e la barra.`);
     }
     if (f.notice) notes.push(f.notice);
-    if (f.mode === 'shot') todoNeed = neededPositions(f.rows, getLevel(state.data, f.geKey, Number(f.level) + 1).fp);
+    if (f.mode === 'shot') todoNeed = neededPositions(f.rows, getLevel(state.data, f.geKey, Number(f.level) + 1).fp, { complete: isComplete(f) });
     if (f.unsure.level || f.unsure.done) notes.push('Lettura incerta di livello o PF versati: controllali con il ritaglio.');
     check.className = problems.length ? 'check bad' : 'check ok';
     check.innerHTML = [...problems, ...notes, ...good].map((t) => `<span class="check-line">${escapeHtml(t)}</span>`).join('');
@@ -441,7 +428,8 @@ function renderResults() {
   const pct = arcPct(state.data, state.settings.arcLevel) ?? 0;
   const remaining = lv.cost - toInt(f.done);
   const visible = new Set(f.rows.filter((r) => !r.isOwner && r.position != null).map((r) => r.position));
-  const need = f.mode === 'shot' ? neededPositions(f.rows, lv.fp) : { ks: [] };
+  const complete = f.mode === 'shot' && isComplete(f);
+  const need = f.mode === 'shot' ? neededPositions(f.rows, lv.fp, { complete }) : { ks: [] };
   const positions = f.mode === 'manual'
     ? f.rows.map((r) => r.position)
     : [...new Set([...visible, ...need.ks.filter((k) => (lv.fp[k - 1] ?? 0) > 0)])].sort((a, b) => a - b);
@@ -450,6 +438,7 @@ function renderResults() {
     arcPct: pct,
     positions,
     rewards: lv.fp,
+    complete,
     contributors: f.rows.map((r) => ({
       name: r.name, fp: toInt(r.fp), isOwner: r.isOwner, isMe: r.isMe, position: r.isOwner ? null : r.position,
     })),
@@ -463,13 +452,14 @@ function renderResults() {
   cur.hidden = !res.current;
   if (res.current) {
     cur.textContent = `Ora sei in P${res.current.position} con ${res.current.fp} PF: ` +
-      (res.current.safe === true ? 'posizione già sicura.'
+      ((lv.fp[res.current.position - 1] ?? 0) === 0 ? 'posizione senza premio.'
+        : res.current.safe === true ? 'posizione già sicura.'
         : res.current.safe === false ? 'non è sicura, ti possono superare.'
           : `non so se è sicura: serve vedere anche P${res.current.position + 1}.`);
   }
 
   const extra = res.rows.filter((r) => r.unknown).map((r) => r.needPosition);
-  renderTodo('res-', f.mode === 'shot' ? neededPositions(f.rows, lv.fp, extra) : { ks: [] });
+  renderTodo('res-', f.mode === 'shot' ? neededPositions(f.rows, lv.fp, { complete, extra }) : { ks: [] });
 
   if (res.error) {
     $('results').innerHTML = `<li class="error">${escapeHtml(res.error)}</li>`;
