@@ -113,7 +113,8 @@ function parseRows(listLines, positionLines, height) {
   // posizioni libere: "Ancora nessun" + "contribuente" sulla riga sotto (se manca, la riga è tagliata: si scarta)
   for (const l of lines) {
     if (used.has(l) || !/(anc\w*\s+n)|nessun/i.test(l.clean)) continue;
-    const next = lines.find((x) => !used.has(x) && x !== l && /contri/i.test(x.clean) && x.bbox.y0 > l.bbox.y0 && x.bbox.y0 - l.bbox.y1 < band);
+    // "contribuente" in corsivo si legge storpiato ("cuantribuonto", "cOoNntribuocnto"): basta "tribu"
+    const next = lines.find((x) => !used.has(x) && x !== l && /contri|tribu/i.test(x.clean) && x.bbox.y0 > l.bbox.y0 && x.bbox.y0 - l.bbox.y1 < band);
     used.add(l);
     if (!next) continue;
     used.add(next);

@@ -429,10 +429,10 @@ function renderResults() {
   const remaining = lv.cost - toInt(f.done);
   const visible = new Set(f.rows.filter((r) => !r.isOwner && r.position != null).map((r) => r.position));
   const complete = f.mode === 'shot' && isComplete(f);
-  const need = f.mode === 'shot' ? neededPositions(f.rows, lv.fp, { complete }) : { ks: [] };
   const positions = f.mode === 'manual'
     ? f.rows.map((r) => r.position)
-    : [...new Set([...visible, ...need.ks.filter((k) => (lv.fp[k - 1] ?? 0) > 0)])].sort((a, b) => a - b);
+    // tutte le posizioni premiate (quelle non visibili escono come "non visibile"), più le altre visibili
+    : [...new Set([...visible, ...lv.fp.flatMap((v, i) => (v > 0 ? [i + 1] : []))])].sort((a, b) => a - b);
   const res = evaluate({
     remaining,
     arcPct: pct,
@@ -485,6 +485,7 @@ function renderResults() {
     const cls = r.balanceTotal > 0 ? 'pos' : r.balanceTotal < 0 ? 'neg' : 'zero';
     const notes = [];
     if (r.alreadySafe) notes.push('Sei già al sicuro qui: non serve versare altro.');
+    if (r.locksHigher) notes.push(`Con questi stessi PF blocchi già P${r.locksHigher}: meglio quella.`);
     if (r.mayEndAt) notes.push(`Potresti salire in P${r.mayEndAt}, ma non è garantito.`);
     if (r.balanceVsStay != null) notes.push(`Rispetto a restare in P${res.current.position}: ${signed(r.balanceVsStay)} PF.`);
     if (me && !r.alreadySafe) notes.push(`Saldo calcolato su tutti i tuoi PF (${res.current.fp} già versati + ${r.add}).`);

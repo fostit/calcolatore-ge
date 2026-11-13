@@ -71,7 +71,8 @@ export function checkContributions(done, rows) {
  */
 function firstFreePosition(ranked, complete) {
   const cands = ranked.filter((r) => Number(r.fp) === 0).map((r) => r.position);
-  if (complete && ranked.length) cands.push(Math.max(...ranked.map((r) => r.position)) + 1);
+  // classifica completa: libero da sotto l'ultima riga; senza righe (solo il proprietario) è libero tutto, da P1
+  if (complete) cands.push(ranked.length ? Math.max(...ranked.map((r) => r.position)) + 1 : 1);
   return cands.length ? Math.min(...cands) : null;
 }
 
@@ -173,11 +174,17 @@ export function evaluate(input) {
     if (rival.fp === undefined) {
       return {
         position: k, competitor: null, unknown: true, needPosition: rival.label, add: null, lockable: false,
-        alreadySafe: false, reward, rewardArc: rewardArc(k), balanceTotal: null, balanceVsStay: null, mayEndAt: null, aboveCurrent,
+        alreadySafe: false, reward, rewardArc: rewardArc(k), balanceTotal: null, balanceVsStay: null, mayEndAt: null, locksHigher: null, aboveCurrent,
       };
     }
     const { add, lockable, alreadySafe } = lockCost({ remaining, competitor: rival.fp, mine: m });
     const above = k > 1 ? othersAt(k - 1) : { fp: undefined };
+    // con gli stessi PF blocco già una posizione più alta? (es. GE quasi vuoto: costano tutte uguale)
+    let locksHigher = null;
+    for (let j = 1; j < k && lockable && !alreadySafe && locksHigher == null; j++) {
+      const r = othersAt(j);
+      if (r.fp !== undefined && lockCost({ remaining, competitor: r.fp, mine: m }).add <= add) locksHigher = j;
+    }
     return {
       position: k,
       competitor: rival.fp,
@@ -190,7 +197,8 @@ export function evaluate(input) {
       rewardArc: rewardArc(k),
       balanceTotal: rewardArc(k) - (m + add),
       balanceVsStay: current?.safe === true && k < p ? rewardArc(k) - rewardArc(p) - add : null,
-      mayEndAt: lockable && above.fp !== undefined && m + add > above.fp ? k - 1 : null,
+      mayEndAt: locksHigher == null && lockable && above.fp !== undefined && m + add > above.fp ? k - 1 : null,
+      locksHigher,
       aboveCurrent,
     };
   });
