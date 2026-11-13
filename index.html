@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#2a1c13">
+  <title>Calcolatore GE</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="bar">
+    <button class="link back" id="btn-back" hidden>‹ Indietro</button>
+    <h1>Calcolatore GE</h1>
+    <button class="icon" id="btn-settings" aria-label="Impostazioni">⚙</button>
+  </header>
+
+  <main>
+    <!-- HOME -->
+    <section id="view-home" class="view">
+      <p class="lead">Condividi lo screenshot di un GE in fase Rame, oppure sceglilo qui.</p>
+      <label class="action primary">
+        <input type="file" id="file-input" accept="image/*" multiple hidden>
+        <span class="action-title">Scegli screenshot</span>
+        <span class="action-sub">Uno o due, se la classifica non sta in una schermata</span>
+      </label>
+      <button class="action" id="btn-manual">
+        <span class="action-title">Inserisci a mano</span>
+        <span class="action-sub">Scegli GE e livello e scrivi i PF dei contribuenti</span>
+      </button>
+      <p class="arc-line" id="home-arc"></p>
+      <p class="error" id="home-error" hidden></p>
+    </section>
+
+    <!-- LETTURA IN CORSO -->
+    <section id="view-busy" class="view" hidden>
+      <div class="busy">
+        <div class="coin" aria-hidden="true"></div>
+        <p id="busy-text">Leggo lo screenshot…</p>
+      </div>
+    </section>
+
+    <!-- CONTROLLA I DATI / INSERIMENTO MANUALE -->
+    <section id="view-data" class="view" hidden>
+      <h2 id="data-title">Controlla i dati</h2>
+      <div class="field-grid">
+        <label class="field wide">
+          <span>Grande Edificio</span>
+          <select id="ge-select"></select>
+          <img class="crop" id="crop-title" alt="Titolo letto nello screenshot" hidden>
+        </label>
+        <label class="field">
+          <span>Livello attuale</span>
+          <input id="level-input" type="number" inputmode="numeric" min="0" max="99">
+          <img class="crop" id="crop-level" alt="Livello letto" hidden>
+        </label>
+        <label class="field">
+          <span>PF già versati</span>
+          <input id="done-input" type="number" inputmode="numeric" min="0">
+          <img class="crop" id="crop-bar" alt="Barra letta" hidden>
+        </label>
+      </div>
+      <p class="check" id="total-check"></p>
+
+      <div class="rows-head">
+        <span>Pos.</span><span>Contribuente</span><span>PF</span>
+      </div>
+      <ol class="rows" id="rows"></ol>
+      <p class="hint" id="rows-hint">Tocca ☆ sulla tua riga se hai già versato PF in questo GE.</p>
+
+      <label class="override" id="override-wrap" hidden>
+        <input type="checkbox" id="override"> Ho controllato i dati, calcola comunque
+      </label>
+      <p class="error" id="data-error" hidden></p>
+      <button class="cta" id="btn-calc">Calcola</button>
+    </section>
+
+    <!-- RISULTATI -->
+    <section id="view-results" class="view" hidden>
+      <h2 id="res-title"></h2>
+      <p class="res-meta" id="res-meta"></p>
+      <p class="res-current" id="res-current" hidden></p>
+      <div class="res-head"><span>Pos.</span><span>Versa</span><span>Premio</span><span>Saldo</span></div>
+      <ol class="results" id="results"></ol>
+      <div class="res-actions">
+        <button class="ghost" id="btn-edit">Modifica dati</button>
+        <button class="cta" id="btn-new">Nuovo GE</button>
+      </div>
+    </section>
+  </main>
+
+  <!-- IMPOSTAZIONI -->
+  <dialog id="dlg-settings">
+    <form method="dialog" id="settings-form">
+      <h2>Impostazioni</h2>
+      <label class="field">
+        <span>Livello della tua Arca</span>
+        <input id="arc-input" type="number" inputmode="numeric" min="1" max="200" required>
+        <small id="arc-pct">Bonus sui premi: —</small>
+      </label>
+      <label class="field">
+        <span>Il tuo nome nel gioco</span>
+        <input id="user-input" type="text" autocomplete="off" autocapitalize="off" spellcheck="false">
+        <small>Serve a riconoscere la tua riga quando hai già versato PF.</small>
+      </label>
+      <p class="hint">Restano salvati solo su questo telefono.</p>
+      <div class="dlg-actions">
+        <button class="ghost" value="cancel" formnovalidate id="settings-cancel">Annulla</button>
+        <button class="cta" value="save" id="settings-save">Salva</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- RITAGLIO INGRANDITO -->
+  <dialog id="dlg-zoom">
+    <img id="zoom-img" alt="Ritaglio ingrandito">
+    <form method="dialog"><button class="ghost">Chiudi</button></form>
+  </dialog>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
