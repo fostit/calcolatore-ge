@@ -1,6 +1,6 @@
 // Collega l'interfaccia ai moduli di calcolo, dati e lettura.
 import { loadData, getLevel, arcPct, listGe } from './data.js';
-import { evaluate, rankingIssues, checkContributions } from './calc.js';
+import { evaluate, rankingIssues, checkContributions, missingPositions } from './calc.js';
 import { parseScreen, mergeScreens, markMe } from './parse-screen.js';
 import { getSettings, saveSettings } from './settings.js';
 // importato subito (non al primo uso): dopo un aggiornamento non si mescolano file vecchi e nuovi
@@ -114,6 +114,100 @@ export async function handleFiles(files) {
   }
 }
 
+// ---------- posizioni che mancano: cosa deve fare l'utente ----------
+const listPos = (ks) => {
+  const names = ks.map((k) => `P${k}`);
+  return names.length > 1 ? `${names.slice(0, -1).join(', ')} e ${names.at(-1)}` : names[0];
+};
+
+/** Posizioni da vedere ancora (premiate e non visibili, o quella sotto di te) e da che parte scorrere. */
+function neededPositions(rows, rewards, extra = []) {
+  const clean = rows.map((r) => ({ ...r, fp: toInt(r.fp) }));
+  const { missing } = missingPositions(clean, rewards);
+  const need = new Set([...missing, ...extra]);
+  const me = clean.find((r) => r.isMe && !r.isOwner && r.fp > 0);
+  const ranked = clean.filter((r) => !r.isOwner && r.position != null);
+  const visible = new Set(ranked.map((r) => r.position));
+  const free = ranked.filter((r) => r.fp === 0).map((r) => r.position);
+  const firstFree = free.length ? Math.min(...free) : null;
+  if (me && !visible.has(me.position + 1) && !(firstFree != null && me.position + 1 >= firstFree)) need.add(me.position + 1);
+  for (const k of visible) need.delete(k);
+  const ks = [...need].sort((a, b) => a - b);
+  const lo = visible.size ? Math.min(...visible) : Infinity;
+  const hi = visible.size ? Math.max(...visible) : -Infinity;
+  const up = ks.some((k) => k < lo);
+  const down = ks.some((k) => k > hi);
+  return { ks, direction: up && down ? 'both' : up ? 'up' : down ? 'down' : null, meNeed: me ? me.position + 1 : null };
+}
+
+function renderTodo(prefix, need) {
+  const box = $(prefix + 'todo');
+  box.hidden = !need.ks.length;
+  if (!need.ks.length) return;
+  const what = listPos(need.ks);
+  const where = need.direction === 'up' ? "verso l'alto"
+    : need.direction === 'both' ? 'prima in alto e poi in basso (in quel caso fai due screenshot)'
+      : 'verso il basso';
+  $(prefix + 'todo-title').textContent = need.ks.length > 1 ? `Mancano ${what} nello screenshot` : `Manca ${what} nello screenshot`;
+  const why = need.meNeed && need.ks.includes(need.meNeed)
+    ? `Per sapere se la tua posizione è sicura devo vedere chi c'è in P${need.meNeed}.`
+    : 'Senza vederle non posso dirti quanto costano né se ti conviene.';
+  $(prefix + 'todo-text').innerHTML = `${why}<ol>
+    <li>Torna nel gioco, sulla finestra di questo GE.</li>
+    <li>Scorri la classifica <b>${where}</b> finché vedi ${what}.</li>
+    <li>Fai lo screenshot e premi <b>Aggiungi screenshot</b> qui sotto.</li></ol>`;
+}
+
+document.addEventListener('change', (e) => {
+  if (!e.target.classList.contains('add-input')) return;
+  const files = [...e.target.files];
+  e.target.value = '';
+  if (files.length) addFiles(files);
+});
+
+/** Aggiunge uno o più screenshot a quelli già letti, senza perdere le correzioni fatte. */
+export async function addFiles(files) {
+  const f = state.form;
+  show('busy');
+  try {
+    $('busy-text').textContent = 'Leggo lo screenshot aggiunto…';
+    await getWorker();
+    const added = [];
+    for (const file of files.slice(0, 2)) {
+      const { raw, bitmap } = await readImage(file);
+      const i = state.bitmaps.push(bitmap) - 1;
+      const sc = parseScreen(raw, state.geList);
+      if (sc.error) throw new Error(sc.error);
+      for (const part of [sc.ge, sc.level, sc.bar, ...sc.rows]) if (part) part.img = i;
+      sc.rows = markMe(sc.rows, state.settings.username);
+      added.push(sc);
+    }
+    const base = {
+      ge: f.geKey ? { key: f.geKey } : null,
+      level: null,
+      bar: f.totalRead != null && f.done !== '' ? { done: Number(f.done), total: f.totalRead } : null,
+      rows: f.rows,
+    };
+    const merged = mergeScreens([base, ...added]);
+    if (merged.error) throw new Error(`${merged.error} Rifai gli screenshot uno subito dopo l'altro.`);
+    // la stella già scelta resta l'unica
+    const hadMe = f.rows.findIndex((r) => r.isMe);
+    if (hadMe >= 0) merged.rows.forEach((r, j) => { if (j !== hadMe) r.isMe = false; });
+    for (const r of merged.rows) if (!r.crop) r.crop = await cropOf(r);
+    // proprietario in cima, poi la classifica in ordine
+    f.rows = merged.rows.sort((a, b) => (a.isOwner ? -1 : b.isOwner ? 1 : a.position - b.position));
+    if (f.totalRead == null && merged.bar) { f.totalRead = merged.bar.total; f.done = merged.bar.done; }
+    f.notice = null;
+    renderData();
+    show('data');
+  } catch (err) {
+    renderData();
+    show('data');
+    $('data-error').textContent = err.message || 'Non sono riuscito a leggere lo screenshot aggiunto.';
+    $('data-error').hidden = false;
+  }
+}
+
 async function cropOf(part) {
   if (!part?.bbox || part.img == null) return null;
   return cropToDataUrl(state.bitmaps[part.img], part.bbox);
@@ -184,6 +278,7 @@ function renderData() {
   setCrop('crop-level', f.crops.level);
   setCrop('crop-bar', f.crops.bar);
   $('rows-hint').hidden = false;
+  $('data-error').hidden = true;
   renderRows();
   renderCheck();
 }
@@ -219,6 +314,7 @@ function renderCheck() {
   const check = $('total-check');
   let ok = false;
   let showOverride = false;
+  let todoNeed = { ks: [] };
   check.className = 'check';
   if (!f.geKey || f.level === '') {
     check.textContent = 'Scegli il GE e scrivi il livello attuale.';
@@ -256,16 +352,18 @@ function renderCheck() {
     if (f.mode === 'shot' && remaining >= 0) {
       const c = checkContributions(Number(f.done), f.rows.map((r) => ({ ...r, fp: toInt(r.fp) })));
       if (c.status === 'complete') good.push(`✓ La classifica torna con la barra (${c.sum} PF).`);
-      else if (c.status === 'partial') notes.push(`Non vedo tutta la classifica (visibili ${c.sum} PF su ${c.done}): le posizioni sotto l'ultima riga non si possono verificare.`);
-      else problems.push(`La somma dei PF in classifica (${c.sum}) non torna con i PF versati (${c.done}): c'è un numero letto male. Controlla le righe e la barra.`);
+      // 'partial': manca qualcuno fuori schermo. Non è un errore: lo spiega il riquadro "Mancano P…"
+      else if (c.status !== 'partial') problems.push(`La somma dei PF in classifica (${c.sum}) non torna con i PF versati (${c.done}): c'è un numero letto male. Controlla le righe e la barra.`);
     }
     if (f.notice) notes.push(f.notice);
+    if (f.mode === 'shot') todoNeed = neededPositions(f.rows, getLevel(state.data, f.geKey, Number(f.level) + 1).fp);
     if (f.unsure.level || f.unsure.done) notes.push('Lettura incerta di livello o PF versati: controllali con il ritaglio.');
     check.className = problems.length ? 'check bad' : 'check ok';
     check.innerHTML = [...problems, ...notes, ...good].map((t) => `<span class="check-line">${escapeHtml(t)}</span>`).join('');
     ok = remaining >= 0 && (problems.length === 0 || state.override);
     showOverride = problems.length > 0 && remaining >= 0;
   }
+  renderTodo('', todoNeed);
   $('override-wrap').hidden = !showOverride;
   if (!showOverride) state.override = false;
   $('override').checked = state.override;
@@ -342,9 +440,11 @@ function renderResults() {
   const lv = getLevel(state.data, f.geKey, Number(f.level) + 1);
   const pct = arcPct(state.data, state.settings.arcLevel) ?? 0;
   const remaining = lv.cost - toInt(f.done);
+  const visible = new Set(f.rows.filter((r) => !r.isOwner && r.position != null).map((r) => r.position));
+  const need = f.mode === 'shot' ? neededPositions(f.rows, lv.fp) : { ks: [] };
   const positions = f.mode === 'manual'
     ? f.rows.map((r) => r.position)
-    : [...new Set(f.rows.filter((r) => !r.isOwner && r.position != null).map((r) => r.position))].sort((a, b) => a - b);
+    : [...new Set([...visible, ...need.ks.filter((k) => (lv.fp[k - 1] ?? 0) > 0)])].sort((a, b) => a - b);
   const res = evaluate({
     remaining,
     arcPct: pct,
@@ -368,6 +468,9 @@ function renderResults() {
           : `non so se è sicura: serve vedere anche P${res.current.position + 1}.`);
   }
 
+  const extra = res.rows.filter((r) => r.unknown).map((r) => r.needPosition);
+  renderTodo('res-', f.mode === 'shot' ? neededPositions(f.rows, lv.fp, extra) : { ks: [] });
+
   if (res.error) {
     $('results').innerHTML = `<li class="error">${escapeHtml(res.error)}</li>`;
     return;
@@ -383,7 +486,8 @@ function renderResults() {
       return `<li class="res off"><div class="res-main">${p}<span class="why">Sei già più in alto</span></div></li>`;
     }
     if (r.unknown) {
-      return `<li class="res off unknown"><div class="res-main">${p}<span class="why">Non calcolabile: serve vedere chi è in P${r.needPosition}. Fai uno screenshot che la mostri.</span></div></li>`;
+      const why = visible.has(r.position) ? `Non calcolabile: serve vedere chi è in P${r.needPosition}` : 'Non visibile nello screenshot';
+      return `<li class="res off unknown"><div class="res-main">${p}<span class="why">${why}: aggiungi uno screenshot (vedi sopra).</span></div></li>`;
     }
     if (!r.lockable) {
       return `<li class="res off"><div class="res-main">${p}<span class="why">Non bloccabile: ${me ? 'dovresti aggiungere' : 'servono'} ${r.add} PF, ne mancano solo ${remaining}</span></div></li>`;

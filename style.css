@@ -166,3 +166,20 @@ dialog::backdrop { background: rgba(10, 6, 3, .75); }
 .dlg-actions { display: grid; grid-template-columns: 1fr 1.4fr; gap: 10px; align-items: end; }
 #dlg-zoom { width: 96vw; max-width: none; }
 #zoom-img { width: 100%; image-rendering: auto; background: #000; border-radius: var(--radius-s); }
+
+/* COSA FARE: riquadro d'azione quando nello screenshot manca qualcosa */
+.todo {
+  margin: 0 0 18px; padding: 14px 14px 16px;
+  background: #3d2a12; border: 2px solid var(--copper); border-radius: var(--radius-l);
+}
+.todo[hidden] { display: none; }
+.todo-title { margin: 0 0 6px; font-size: 20px; font-weight: 700; color: var(--copper-hi); }
+.todo-text { margin: 0 0 12px; font-size: 17px; }
+.todo-text ol { margin: 6px 0 0; padding-left: 22px; }
+.todo-text li + li { margin-top: 4px; }
+.todo-btn {
+  display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 52px;
+  background: var(--copper); color: var(--wood); border-radius: var(--radius-l);
+  font-size: 20px; font-weight: 700; cursor: pointer;
+}
+.todo-btn::before { content: '📷'; }

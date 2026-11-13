@@ -66,6 +66,28 @@ export function checkContributions(done, rows) {
 }
 
 /**
+ * Posizioni che danno un premio ma non si vedono nello screenshot, e da che parte scorrere per vederle.
+ * Se è visibile una posizione libera, quelle sotto sono libere anche loro: non mancano.
+ */
+export function missingPositions(rows, rewards) {
+  const ranked = rows.filter((r) => !(r.isOwner || r.position == null));
+  const visible = new Set(ranked.map((r) => r.position));
+  const free = ranked.filter((r) => Number(r.fp) === 0).map((r) => r.position);
+  const firstFree = free.length ? Math.min(...free) : null;
+  const missing = [];
+  rewards.forEach((reward, i) => {
+    const k = i + 1;
+    if (reward > 0 && !visible.has(k) && !(firstFree != null && k >= firstFree)) missing.push(k);
+  });
+  if (!missing.length) return { missing, direction: null };
+  const lo = visible.size ? Math.min(...visible) : Infinity;
+  const hi = visible.size ? Math.max(...visible) : -Infinity;
+  const up = missing.some((k) => k < lo);
+  const down = missing.some((k) => k > hi);
+  return { missing, direction: up && down ? 'both' : up ? 'up' : 'down' };
+}
+
+/**
  * Valuta le posizioni richieste.
  * contributors: [{ name, fp, position, isOwner, isMe }] (position = numero sullo schermo, null per il proprietario).
  * rewards: premi base P1-P7 della riga L+1. positions: numeri di posizione da valutare.
