@@ -109,7 +109,8 @@ export function evaluate(input) {
 
   const rows = positions.map((k) => {
     const reward = rewards[k - 1] ?? 0;
-    const aboveCurrent = p != null ? k > p : false;
+    // "sei già più in alto" solo se la posizione attuale è sicura; altrimenti quelle sotto sono un ripiego da calcolare
+    const aboveCurrent = current?.safe === true && k > p;
     const rival = othersAt(k);
     if (rival.fp === undefined) {
       return {

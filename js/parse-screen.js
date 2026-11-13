@@ -3,6 +3,9 @@
 
 const ROW_BAND = 0.045; // metà altezza di una riga della classifica, in frazione dell'altezza dello screenshot
 const MIN_SCORE = 0.7; // somiglianza minima per accettare il nome di un GE
+const MIN_SCORE_SHORT = 0.85; // per i nomi di 6 lettere o meno
+const ASPECT = 2410 / 1080; // screenshot del Pixel in orizzontale, su cui sono tarate le zone
+const ASPECT_TOLERANCE = 0.05;
 
 export function normalize(s) {
   return s
@@ -35,10 +38,14 @@ export function matchGe(rawTitle, geList) {
   const t = normalize(rawTitle);
   let best = null;
   for (const g of geList) {
-    const score = Math.max(similarity(t, normalize(g.it)), similarity(t, normalize(g.en)));
-    if (!best || score > best.score) best = { key: g.key, score };
+    for (const name of [normalize(g.it), normalize(g.en)]) {
+      const score = similarity(t, name);
+      // sui nomi corti una lettera sbagliata pesa molto: serve più somiglianza (es. "Area" non è "Arca")
+      const need = name.length <= 6 ? MIN_SCORE_SHORT : MIN_SCORE;
+      if (score >= need && (!best || score > best.score)) best = { key: g.key, score };
+    }
   }
-  return best && best.score >= MIN_SCORE ? best : null;
+  return best;
 }
 
 const union = (boxes) => ({
@@ -88,7 +95,8 @@ function parseRows(listLines, positionLines, height) {
 
   // righe con "NNN Punti Forge"
   for (const l of lines) {
-    const m = l.clean.match(/(\d[\d.]*)\s*Pun/i);
+    // l'ULTIMO "NNN Pun…" della riga: un nome come "Player9 Punk" non deve rubare i PF
+    const m = [...l.clean.matchAll(/(\d[\d.]*)\s*Pun/gi)].pop();
     if (!m) continue;
     used.add(l);
     const before = cleanText(l.clean.slice(0, m.index));
@@ -110,7 +118,7 @@ function parseRows(listLines, positionLines, height) {
     if (!next) continue;
     used.add(next);
     const box = union([l.bbox, next.bbox]);
-    rows.push({ fp: 0, conf: 100, parts: [], boxes: [box], cy: centerY(box), empty: true });
+    rows.push({ fp: 0, conf: Math.min(l.conf, next.conf), parts: [], boxes: [box], cy: centerY(box), empty: true });
   }
 
   // righe con solo testo: pezzi di nomi andati a capo
@@ -146,7 +154,9 @@ function parseRows(listLines, positionLines, height) {
       isMe: false,
       bbox: union(r.boxes),
       conf: r.conf,
-      uncertain: r.conf < 80,
+      // la scritta "Ancora nessun contribuente" si legge male ma si riconosce bene: non la segno gialla
+      // (se fosse sbagliata, il controllo somma-PF/barra lo scopre)
+      uncertain: !r.empty && r.conf < 80,
     }));
 
   // controllo di coerenza: la classifica deve essere in ordine decrescente
@@ -159,6 +169,12 @@ function parseRows(listLines, positionLines, height) {
 
 /** raw = risultato di readRegions(); geList = listGe(data). */
 export function parseScreen(raw, geList) {
+  if (Math.abs(raw.width / raw.height / ASPECT - 1) > ASPECT_TOLERANCE) {
+    return {
+      error: 'Formato dello screenshot non supportato: serve uno screenshot del telefono in orizzontale, a schermo intero, con la finestra del GE aperta.',
+      ge: null, level: null, bar: null, rows: [],
+    };
+  }
   const { ge, phase } = parseTitle(raw.title ?? [], geList);
   const bar = parseBar(raw.bar ?? []);
   if (!ge && !bar) {
@@ -188,13 +204,22 @@ export function mergeScreens(screens) {
     }
   }
   const key = (r) => (r.position != null ? `p${r.position}` : `o${r.name}|${r.fp}`);
-  const seen = new Set();
+  const byKey = new Map();
   const rows = [];
   for (const s of screens) {
     for (const r of s.rows) {
-      if (seen.has(key(r))) continue;
-      seen.add(key(r));
-      rows.push(r);
+      const seen = byKey.get(key(r));
+      if (seen) {
+        // stessa posizione letta con PF diversi nei due screenshot: tengo il primo ma lo segnalo
+        if (seen.fp !== r.fp) {
+          seen.uncertain = true;
+          seen.conflictFp = r.fp;
+        }
+        continue;
+      }
+      const copy = { ...r };
+      byKey.set(key(r), copy);
+      rows.push(copy);
     }
   }
   return {
