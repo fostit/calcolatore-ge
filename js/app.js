@@ -1,6 +1,6 @@
 // Collega l'interfaccia ai moduli di calcolo, dati e lettura.
 import { loadData, getLevel, arcPct, listGe } from './data.js';
-import { evaluate } from './calc.js';
+import { evaluate, rankingIssues, checkContributions } from './calc.js';
 import { parseScreen, mergeScreens, markMe } from './parse-screen.js';
 import { getSettings, saveSettings } from './settings.js';
 
@@ -57,13 +57,17 @@ $('arc-input').addEventListener('input', updateArcPreview);
 $('dlg-settings').addEventListener('close', () => {
   if ($('dlg-settings').returnValue !== 'save') return;
   const lvl = Number($('arc-input').value);
+  const oldUser = state.settings.username;
   state.settings = saveSettings({
     arcLevel: arcPct(state.data, lvl) != null ? lvl : state.settings.arcLevel,
     username: $('user-input').value.trim(),
   });
   renderHomeArc();
   if (state.form) {
-    state.form.rows = markMe(state.form.rows, state.settings.username);
+    // la stella messa a mano resta: si ricalcola solo se è cambiato il nome, e solo per gli screenshot
+    if (state.form.mode === 'shot' && state.settings.username !== oldUser) {
+      state.form.rows = markMe(state.form.rows, state.settings.username);
+    }
     if (state.view === 'data') renderData();
     if (state.view === 'results') renderResults();
   }
@@ -125,6 +129,7 @@ async function startShotForm(m) {
     totalRead: m.bar?.total ?? null,
     crops: { title: await cropOf(m.ge), level: await cropOf(m.level), bar: await cropOf(m.bar) },
     rows: markMe(rows, state.settings.username),
+    unsure: { level: (m.level?.conf ?? 0) < 80, done: (m.bar?.conf ?? 0) < 80 },
   };
   state.override = false;
   renderData();
@@ -146,7 +151,7 @@ function manualRows(geKey, level, previous = []) {
 }
 
 $('btn-manual').addEventListener('click', () => {
-  state.form = { mode: 'manual', geKey: '', level: '', done: '', totalRead: null, crops: {}, rows: manualRows('', '') };
+  state.form = { mode: 'manual', geKey: '', level: '', done: '', totalRead: null, crops: {}, rows: manualRows('', ''), unsure: {} };
   state.override = false;
   renderData();
   show('data');
@@ -172,6 +177,8 @@ function renderData() {
     state.geList.map((g) => `<option value="${g.key}"${g.key === f.geKey ? ' selected' : ''}>${g.it}</option>`).join('');
   $('level-input').value = f.level;
   $('done-input').value = f.done;
+  $('level-input').classList.toggle('unsure', !!f.unsure.level);
+  $('done-input').classList.toggle('unsure', !!f.unsure.done);
   setCrop('crop-title', f.crops.title);
   setCrop('crop-level', f.crops.level);
   setCrop('crop-bar', f.crops.bar);
@@ -188,14 +195,15 @@ function renderRows() {
   const f = state.form;
   $('rows').innerHTML = f.rows.map((r, i) => {
     const cls = ['row', r.uncertain ? 'uncertain' : '', r.isMe ? 'me' : ''].join(' ');
-    const pos = r.isOwner ? '<span title="Proprietario">♛</span>' : r.position;
+    const pos = f.mode === 'manual' ? `<span class="pos">${r.position}</span>`
+      : `<input class="pos" type="number" inputmode="numeric" min="1" max="99" data-pos="${i}" value="${r.isOwner ? '' : r.position}" placeholder="♛" aria-label="Posizione (vuoto = proprietario)">`;
     const name = r.isOwner ? `${escapeHtml(r.name || 'Proprietario')} <small>(proprietario)</small>`
       : r.name ? escapeHtml(r.name) : (f.mode === 'manual' ? `Posizione ${r.position}` : 'Libera');
     const nameCls = r.name || r.isOwner ? 'name' : 'name empty';
     const star = r.isOwner ? '<span></span>'
       : `<button class="star" data-me="${i}" aria-label="Questa riga sono io" aria-pressed="${r.isMe}">${r.isMe ? '★' : '☆'}</button>`;
     return `<li class="${cls}">
-      <span class="pos">${pos}</span>
+      ${pos}
       <span class="who"><span class="${nameCls}">${name}</span>${r.crop ? `<img class="crop" src="${r.crop}" alt="Riga letta nello screenshot">` : ''}</span>
       <input type="number" inputmode="numeric" min="0" data-fp="${i}" value="${r.fp}" aria-label="PF di ${escapeHtml(r.name || 'posizione ' + r.position)}" placeholder="0">
       ${star}
@@ -208,6 +216,7 @@ function renderCheck() {
   const exp = expectedCost(f);
   const check = $('total-check');
   let ok = false;
+  let showOverride = false;
   check.className = 'check';
   if (!f.geKey || f.level === '') {
     check.textContent = 'Scegli il GE e scrivi il livello attuale.';
@@ -217,24 +226,42 @@ function renderCheck() {
   } else if (exp == null) {
     check.className = 'check bad';
     check.textContent = 'Livello non valido.';
+  } else if (f.done === '' || !Number.isInteger(Number(f.done)) || Number(f.done) < 0) {
+    check.className = 'check bad';
+    check.textContent = f.mode === 'shot'
+      ? 'Barra non letta: scrivi i PF già versati (il numero prima della / nella barra verde).'
+      : 'Scrivi i PF già versati (il numero prima della / nella barra verde).';
   } else {
-    const remaining = exp - toInt(f.done);
-    const tail = remaining >= 0 ? `Mancano ${remaining} PF alla chiusura.` : 'I PF versati superano il costo: controlla i numeri.';
-    if (f.mode === 'manual' || f.totalRead == null) {
-      check.className = remaining >= 0 ? 'check ok' : 'check bad';
-      check.textContent = `Costo del livello ${Number(f.level) + 1}: ${exp} PF. ${tail}`;
-      ok = remaining >= 0;
-    } else if (f.totalRead === exp) {
-      check.className = remaining >= 0 ? 'check ok' : 'check bad';
-      check.textContent = `✓ Il totale ${exp} coincide con il file. ${tail}`;
-      ok = remaining >= 0;
+    const remaining = exp - Number(f.done);
+    const good = []; // conferme
+    const problems = []; // dati che non tornano: servono correzione o conferma esplicita
+    const notes = []; // avvisi che non bloccano
+    if (remaining < 0) {
+      problems.push(`I PF versati (${f.done}) superano il costo del livello (${exp}): controlla GE, livello e PF versati.`);
+    } else if (f.mode === 'manual') {
+      good.push(`Costo del livello ${Number(f.level) + 1}: ${exp} PF. Mancano ${remaining} PF alla chiusura.`);
+    } else if (f.totalRead == null) {
+      problems.push(`Non ho letto il totale nella barra, quindi non posso verificare GE e livello. Il file prevede ${exp} PF: controllali tu.`);
+    } else if (f.totalRead !== exp) {
+      problems.push(`Lo screenshot dice ${f.totalRead} PF totali, il file ne prevede ${exp} per questo livello: controlla GE e livello.`);
     } else {
-      check.className = 'check bad';
-      check.textContent = `Lo screenshot dice ${f.totalRead} PF totali, il file ne prevede ${exp} per questo livello: controlla GE e livello.`;
-      ok = state.override && remaining >= 0;
+      good.push(`✓ Il totale ${exp} coincide con il file. Mancano ${remaining} PF alla chiusura.`);
     }
+    problems.push(...rankingIssues(f.rows.map((r) => ({ ...r, fp: toInt(r.fp) }))));
+    if (f.mode === 'shot' && remaining >= 0) {
+      const c = checkContributions(Number(f.done), f.rows.map((r) => ({ ...r, fp: toInt(r.fp) })));
+      if (c.status === 'complete') good.push(`✓ La classifica torna con la barra (${c.sum} PF).`);
+      else if (c.status === 'partial') notes.push(`Non vedo tutta la classifica (visibili ${c.sum} PF su ${c.done}): le posizioni sotto l'ultima riga non si possono verificare.`);
+      else problems.push(`La somma dei PF in classifica (${c.sum}) non torna con i PF versati (${c.done}): c'è un numero letto male. Controlla le righe e la barra.`);
+    }
+    if (f.unsure.level || f.unsure.done) notes.push('Lettura incerta di livello o PF versati: controllali con il ritaglio.');
+    check.className = problems.length ? 'check bad' : 'check ok';
+    check.innerHTML = [...problems, ...notes, ...good].map((t) => `<span class="check-line">${escapeHtml(t)}</span>`).join('');
+    ok = remaining >= 0 && (problems.length === 0 || state.override);
+    showOverride = problems.length > 0 && remaining >= 0;
   }
-  $('override-wrap').hidden = !(f.mode === 'shot' && f.totalRead != null && exp != null && f.totalRead !== exp);
+  $('override-wrap').hidden = !showOverride;
+  if (!showOverride) state.override = false;
   $('override').checked = state.override;
   $('btn-calc').disabled = !ok;
 }
@@ -258,6 +285,19 @@ $('rows').addEventListener('input', (e) => {
   state.form.rows[i].fp = e.target.value === '' ? '' : Number(e.target.value);
   state.form.rows[i].uncertain = false;
   e.target.closest('.row').classList.remove('uncertain');
+  renderCheck();
+});
+// numero di posizione corretto a mano: vuoto = proprietario
+$('rows').addEventListener('change', (e) => {
+  const i = e.target.dataset.pos;
+  if (i == null) return;
+  const row = state.form.rows[i];
+  const v = e.target.value.trim();
+  row.position = v === '' ? null : Number(v);
+  row.isOwner = v === '';
+  if (row.isOwner) row.isMe = false;
+  renderRows();
+  renderCheck();
 });
 $('rows').addEventListener('click', (e) => {
   const star = e.target.closest('[data-me]');
@@ -266,6 +306,7 @@ $('rows').addEventListener('click', (e) => {
     const wasMe = state.form.rows[i].isMe;
     state.form.rows.forEach((r, j) => { r.isMe = j === i && !wasMe; });
     renderRows();
+    renderCheck();
     return;
   }
   const crop = e.target.closest('.crop');
@@ -303,7 +344,9 @@ function renderResults() {
     arcPct: pct,
     positions,
     rewards: lv.fp,
-    contributors: f.rows.map((r) => ({ name: r.name, fp: toInt(r.fp), isOwner: r.isOwner, isMe: r.isMe })),
+    contributors: f.rows.map((r) => ({
+      name: r.name, fp: toInt(r.fp), isOwner: r.isOwner, isMe: r.isMe, position: r.isOwner ? null : r.position,
+    })),
   });
 
   $('res-title').textContent = `${g.it}, livello ${Number(f.level)} → ${Number(f.level) + 1}`;
@@ -313,7 +356,9 @@ function renderResults() {
   cur.hidden = !res.current;
   if (res.current) {
     cur.textContent = `Ora sei in P${res.current.position} con ${res.current.fp} PF: ` +
-      (res.current.safe ? 'posizione già sicura.' : 'non è sicura, ti possono superare.');
+      (res.current.safe === true ? 'posizione già sicura.'
+        : res.current.safe === false ? 'non è sicura, ti possono superare.'
+          : `non so se è sicura: serve vedere anche P${res.current.position + 1}.`);
   }
 
   if (res.error) {
@@ -329,6 +374,9 @@ function renderResults() {
     }
     if (r.aboveCurrent) {
       return `<li class="res off"><div class="res-main">${p}<span class="why">Sei già più in alto</span></div></li>`;
+    }
+    if (r.unknown) {
+      return `<li class="res off unknown"><div class="res-main">${p}<span class="why">Non calcolabile: serve vedere chi è in P${r.needPosition}. Fai uno screenshot che la mostri.</span></div></li>`;
     }
     if (!r.lockable) {
       return `<li class="res off"><div class="res-main">${p}<span class="why">Non bloccabile: ${me ? 'dovresti aggiungere' : 'servono'} ${r.add} PF, ne mancano solo ${remaining}</span></div></li>`;

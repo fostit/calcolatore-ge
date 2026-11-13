@@ -1,6 +1,6 @@
 // Service worker: tiene l'app nel telefono (funziona offline) e riceve gli screenshot dal menu Condividi.
 // A ogni pubblicazione con modifiche AUMENTA il numero di VERSION: è così che il telefono scarica la versione nuova.
-const VERSION = 'calc-ge-v1';
+const VERSION = 'calc-ge-v2';
 const SHARED = 'calc-ge-shared';
 
 const FILES = [
