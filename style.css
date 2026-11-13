@@ -84,6 +84,26 @@ input, select {
   background: var(--wood-3); border: 1px solid var(--grain); border-radius: var(--radius-s);
   font-size: 20px; font-weight: 600;
 }
+.field > label { font-size: 14px; color: var(--muted); font-weight: 600; }
+/* scelta del GE: campo di ricerca + elenco filtrato */
+.combo { position: relative; }
+.combo input { padding-right: 36px; }
+.combo::after {
+  content: ''; position: absolute; right: 15px; top: 50%; width: 8px; height: 8px; pointer-events: none;
+  border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted); transform: translateY(-70%) rotate(45deg);
+}
+#ge-options {
+  position: absolute; z-index: 5; left: 0; right: 0; top: calc(100% + 4px);
+  margin: 0; padding: 4px; list-style: none;
+  max-height: min(50vh, 360px); overflow-y: auto; overscroll-behavior: contain;
+  background: var(--wood-2); border: 1px solid var(--copper); border-radius: var(--radius-s);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, .55);
+}
+#ge-options li { padding: 11px 10px; border-radius: 4px; font-size: 18px; cursor: pointer; }
+#ge-options li.active, #ge-options li:hover { background: var(--wood-3); }
+#ge-options li[aria-selected=true] { color: var(--copper-hi); font-weight: 700; }
+#ge-options li[aria-selected=true]::after { content: ' ✓'; }
+#ge-options li.none { color: var(--muted); cursor: default; background: none; }
 input[type=checkbox] { width: 22px; min-height: 22px; accent-color: var(--copper); }
 .crop {
   display: block; max-width: 100%; height: 34px; object-fit: contain; object-position: left center;

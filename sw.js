@@ -1,6 +1,6 @@
 // Service worker: tiene l'app nel telefono (funziona offline) e riceve gli screenshot dal menu Condividi.
 // VERSION la calcola da solo tools/pubblica.py dal contenuto dei file: non modificarla a mano.
-const VERSION = 'calc-ge-d66a2937b5';
+const VERSION = 'calc-ge-3437a092d4';
 const SHARED = 'calc-ge-shared';
 
 const FILES = [

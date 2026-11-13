@@ -24,7 +24,7 @@
       <label class="action primary">
         <input type="file" id="file-input" accept="image/*" multiple hidden>
         <span class="action-title">Scegli screenshot</span>
-        <span class="action-sub">Uno o due, se la classifica non sta in una schermata</span>
+        <span class="action-sub">Anche più di uno, se la classifica non sta in una schermata</span>
       </label>
       <button class="action" id="btn-manual">
         <span class="action-title">Inserisci a mano</span>
@@ -46,11 +46,16 @@
     <section id="view-data" class="view" hidden>
       <h2 id="data-title">Controlla i dati</h2>
       <div class="field-grid">
-        <label class="field wide">
-          <span>Grande Edificio</span>
-          <select id="ge-select"></select>
+        <div class="field wide">
+          <label for="ge-input">Grande Edificio</label>
+          <div class="combo">
+            <input id="ge-input" type="text" role="combobox" autocomplete="off" autocapitalize="off" spellcheck="false"
+              enterkeyhint="done" aria-autocomplete="list" aria-expanded="false" aria-controls="ge-options"
+              placeholder="Scrivi il nome o una parte">
+            <ul id="ge-options" role="listbox" aria-label="Grandi Edifici" hidden></ul>
+          </div>
           <img class="crop" id="crop-title" alt="Titolo letto nello screenshot" hidden>
-        </label>
+        </div>
         <label class="field">
           <span>Livello attuale</span>
           <input id="level-input" type="number" inputmode="numeric" min="0" max="99">

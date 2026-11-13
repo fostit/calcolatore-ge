@@ -23,3 +23,19 @@ export function arcPct(data, arcLevel) {
 export function listGe(data) {
   return Object.entries(data.ge).map(([key, g]) => ({ key, it: g.it, en: g.en }));
 }
+
+// minuscole e senza accenti: "Château" e "chateau" sono la stessa cosa
+const fold = (s) => (s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+
+/**
+ * GE in ordine alfabetico (nome italiano) che contengono `query` nel nome italiano o inglese.
+ * Prima quelli il cui nome italiano inizia con il testo cercato, poi gli altri.
+ */
+export function searchGe(list, query) {
+  const q = fold(query);
+  const byName = (a, b) => a.it.localeCompare(b.it, 'it', { sensitivity: 'base' });
+  const sorted = [...list].sort(byName);
+  if (!q) return sorted;
+  const hits = sorted.filter((g) => fold(g.it).includes(q) || fold(g.en).includes(q));
+  return [...hits.filter((g) => fold(g.it).startsWith(q)), ...hits.filter((g) => !fold(g.it).startsWith(q))];
+}

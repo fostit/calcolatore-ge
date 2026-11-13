@@ -1,5 +1,5 @@
 // Collega l'interfaccia ai moduli di calcolo, dati e lettura.
-import { loadData, getLevel, arcPct, listGe } from './data.js';
+import { loadData, getLevel, arcPct, listGe, searchGe } from './data.js';
 import { evaluate, rankingIssues, checkContributions, neededPositions } from './calc.js';
 import { parseScreen, mergeScreens, markMe } from './parse-screen.js';
 import { getSettings, saveSettings } from './settings.js';
@@ -255,8 +255,7 @@ function setCrop(id, src) {
 function renderData() {
   const f = state.form;
   $('data-title').textContent = f.mode === 'manual' ? 'Inserisci i dati' : 'Controlla i dati';
-  $('ge-select').innerHTML = `<option value="">Scegli…</option>` +
-    state.geList.map((g) => `<option value="${g.key}"${g.key === f.geKey ? ' selected' : ''}>${g.it}</option>`).join('');
+  closeGeList();
   $('level-input').value = f.level;
   $('done-input').value = f.done;
   $('level-input').classList.toggle('unsure', !!f.unsure.level);
@@ -357,10 +356,83 @@ function renderCheck() {
   $('btn-calc').disabled = !ok;
 }
 
-$('ge-select').addEventListener('change', (e) => {
-  state.form.geKey = e.target.value;
+// ---------- scelta del GE: scrivi una parte del nome, l'elenco (alfabetico) si filtra ----------
+const geInput = $('ge-input');
+const geOptions = $('ge-options');
+let geHits = [];
+let geActive = -1;
+
+const geName = (key) => state.geList.find((g) => g.key === key)?.it ?? '';
+
+function renderGeList() {
+  geHits = searchGe(state.geList, geInput.value === geName(state.form.geKey) ? '' : geInput.value);
+  if (geActive >= geHits.length) geActive = geHits.length - 1;
+  geOptions.innerHTML = geHits.length
+    ? geHits.map((g, i) => `<li role="option" id="ge-opt-${i}" data-ge="${g.key}" aria-selected="${g.key === state.form.geKey}"${i === geActive ? ' class="active"' : ''}>${escapeHtml(g.it)}</li>`).join('')
+    : `<li class="none">Nessun GE contiene «${escapeHtml(geInput.value.trim())}»</li>`;
+  geOptions.hidden = false;
+  geInput.setAttribute('aria-expanded', 'true');
+  if (geActive >= 0) {
+    geInput.setAttribute('aria-activedescendant', `ge-opt-${geActive}`);
+    keepInView($(`ge-opt-${geActive}`), false);
+  } else {
+    geInput.removeAttribute('aria-activedescendant');
+  }
+}
+
+/** Scorre solo l'elenco (non la pagina) per mostrare `li`: al centro, o appena dentro il bordo. */
+function keepInView(li, center) {
+  if (!li) return;
+  const top = li.offsetTop;
+  const bottom = top + li.offsetHeight;
+  if (center) geOptions.scrollTop = top - (geOptions.clientHeight - li.offsetHeight) / 2;
+  else if (top < geOptions.scrollTop) geOptions.scrollTop = top;
+  else if (bottom > geOptions.scrollTop + geOptions.clientHeight) geOptions.scrollTop = bottom - geOptions.clientHeight;
+}
+
+function closeGeList() {
+  geOptions.hidden = true;
+  geActive = -1;
+  geInput.setAttribute('aria-expanded', 'false');
+  geInput.removeAttribute('aria-activedescendant');
+  geInput.value = geName(state.form?.geKey); // niente scelta: torna il GE di prima
+}
+
+function chooseGe(key) {
+  state.form.geKey = key;
+  closeGeList();
+  geInput.blur(); // chiude la tastiera
   if (state.form.mode === 'manual') { state.form.rows = manualRows(state.form.geKey, state.form.level, state.form.rows); renderRows(); }
   renderCheck();
+}
+
+geInput.addEventListener('focus', () => {
+  geInput.select(); // scrivendo si sostituisce il nome, senza doverlo cancellare
+  geActive = -1;
+  renderGeList();
+  keepInView(geOptions.querySelector('[aria-selected=true]'), true); // riparte dal GE già scelto
+});
+geInput.addEventListener('input', () => { geActive = geInput.value.trim() ? 0 : -1; renderGeList(); });
+geInput.addEventListener('blur', closeGeList);
+geInput.addEventListener('keydown', (e) => {
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    if (geOptions.hidden) return renderGeList();
+    geActive = Math.max(0, Math.min(geHits.length - 1, geActive + (e.key === 'ArrowDown' ? 1 : -1)));
+    renderGeList();
+  } else if (e.key === 'Enter') {
+    e.preventDefault();
+    const pick = geHits[Math.max(geActive, 0)];
+    if (pick && (geActive >= 0 || geHits.length === 1)) chooseGe(pick.key);
+  } else if (e.key === 'Escape') {
+    closeGeList();
+  }
+});
+// pointerdown + preventDefault: il campo non perde il focus prima che la scelta sia registrata
+geOptions.addEventListener('pointerdown', (e) => e.preventDefault());
+geOptions.addEventListener('click', (e) => {
+  const li = e.target.closest('li[data-ge]');
+  if (li) chooseGe(li.dataset.ge);
 });
 $('level-input').addEventListener('input', (e) => {
   state.form.level = e.target.value === '' ? '' : Number(e.target.value);
