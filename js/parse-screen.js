@@ -48,6 +48,26 @@ export function matchGe(rawTitle, geList) {
   return best;
 }
 
+/**
+ * Controllo incrociato del GE con il totale della barra, che si legge quasi sempre bene.
+ * Se il GE riconosciuto dal titolo non costa quel totale al livello letto, sceglie tra i GE che lo costano
+ * esattamente quello col nome più simile al titolo. costOf(key, level) = costo per passare da level a level+1.
+ * Restituisce { key, corrected }; key null se non si può decidere.
+ */
+export function checkGe({ ge, level, bar }, geList, costOf) {
+  const key = ge?.key ?? null;
+  if (!bar || !level) return { key, corrected: false };
+  if (key && costOf(key, level.value) === bar.total) return { key, corrected: false };
+  const cands = geList.filter((g) => costOf(g.key, level.value) === bar.total);
+  if (!cands.length) return { key, corrected: false };
+  if (cands.length === 1) return { key: cands[0].key, corrected: cands[0].key !== key };
+  const t = normalize(ge?.raw ?? '');
+  if (!t) return { key, corrected: false };
+  const score = (g) => Math.max(similarity(t, normalize(g.it)), similarity(t, normalize(g.en)));
+  const best = [...cands].sort((a, b) => score(b) - score(a))[0];
+  return { key: best.key, corrected: best.key !== key };
+}
+
 const union = (boxes) => ({
   x0: Math.min(...boxes.map((b) => b.x0)),
   y0: Math.min(...boxes.map((b) => b.y0)),

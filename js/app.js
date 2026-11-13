@@ -1,7 +1,7 @@
 // Collega l'interfaccia ai moduli di calcolo, dati e lettura.
 import { loadData, getLevel, arcPct, listGe, searchGe } from './data.js';
 import { evaluate, rankingIssues, checkContributions, neededPositions } from './calc.js';
-import { parseScreen, mergeScreens, markMe } from './parse-screen.js';
+import { parseScreen, mergeScreens, markMe, checkGe } from './parse-screen.js';
 import { getSettings, saveSettings } from './settings.js';
 // importato subito (non al primo uso): dopo un aggiornamento non si mescolano file vecchi e nuovi
 import { readImage, getWorker, cropToDataUrl } from './ocr.js';
@@ -202,9 +202,16 @@ async function cropOf(part) {
 
 async function startShotForm(m, notice = null) {
   const rows = await Promise.all(m.rows.map(async (r) => ({ ...r, crop: await cropOf(r) })));
+  // il totale della barra fa da controllo: se il GE letto dal titolo non costa quel totale, si corregge
+  const ge = checkGe(m, state.geList, (key, level) => getLevel(state.data, key, level + 1)?.cost ?? null);
+  if (ge.corrected) {
+    const fixed = `Ho scelto ${geName(ge.key)}: è il GE il cui livello ${m.level.value + 1} costa ${m.bar.total} PF, come dice la barra.` +
+      (m.ge ? ` Dal titolo avevo capito ${geName(m.ge.key)}.` : '') + ' Controlla che sia giusto.';
+    notice = notice ? `${fixed} ${notice}` : fixed;
+  }
   state.form = {
     mode: 'shot',
-    geKey: m.ge?.key ?? '',
+    geKey: ge.key ?? '',
     level: m.level?.value ?? '',
     done: m.bar?.done ?? '',
     totalRead: m.bar?.total ?? null,
@@ -413,7 +420,9 @@ geInput.addEventListener('focus', () => {
   keepInView(geOptions.querySelector('[aria-selected=true]'), true); // riparte dal GE già scelto
 });
 geInput.addEventListener('input', () => { geActive = geInput.value.trim() ? 0 : -1; renderGeList(); });
-geInput.addEventListener('blur', closeGeList);
+// chiusura ritardata: su Android il tocco su una voce può togliere il focus al campo prima del "click";
+// se l'elenco sparisse subito, il tocco finirebbe nel vuoto e la scelta andrebbe persa
+geInput.addEventListener('blur', () => setTimeout(() => { if (document.activeElement !== geInput) closeGeList(); }, 250));
 geInput.addEventListener('keydown', (e) => {
   if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
     e.preventDefault();
@@ -430,6 +439,7 @@ geInput.addEventListener('keydown', (e) => {
 });
 // pointerdown + preventDefault: il campo non perde il focus prima che la scelta sia registrata
 geOptions.addEventListener('pointerdown', (e) => e.preventDefault());
+geOptions.addEventListener('mousedown', (e) => e.preventDefault());
 geOptions.addEventListener('click', (e) => {
   const li = e.target.closest('li[data-ge]');
   if (li) chooseGe(li.dataset.ge);

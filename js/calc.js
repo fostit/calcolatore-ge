@@ -57,11 +57,19 @@ export function rankingIssues(rows) {
  */
 export function checkContributions(done, rows) {
   const sum = rows.reduce((s, r) => s + (Number(r.fp) || 0), 0);
-  const freeVisible = rows.some((r) => !(r.isOwner || r.position == null) && Number(r.fp) === 0);
+  // "si vede tutto" solo se c'è il proprietario, una riga libera e tutte le posizioni da P1 fino a lei:
+  // una classifica scorsa (proprietario o P1 fuori schermo) è solo parziale, non sbagliata
+  const ranked = rows.filter((r) => !(r.isOwner || r.position == null));
+  const seen = new Set(ranked.map((r) => r.position));
+  const free = ranked.filter((r) => Number(r.fp) === 0).map((r) => r.position);
+  const firstFree = free.length ? Math.min(...free) : null;
+  const ownerVisible = rows.some((r) => r.isOwner || r.position == null);
+  const allVisible = firstFree != null && ownerVisible
+    && Array.from({ length: firstFree - 1 }, (_, i) => i + 1).every((k) => seen.has(k));
   let status;
   if (sum > done) status = 'over';
   else if (sum === done) status = 'complete';
-  else status = freeVisible ? 'mismatch' : 'partial';
+  else status = allVisible ? 'mismatch' : 'partial';
   return { status, sum, done };
 }
 
