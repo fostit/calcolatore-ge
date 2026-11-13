@@ -21,8 +21,11 @@ export function arcPct(data, arcLevel) {
 }
 
 export function listGe(data) {
-  return Object.entries(data.ge).map(([key, g]) => ({ key, it: g.it, en: g.en }));
+  return Object.entries(data.ge).map(([key, g]) => ({ key, it: g.it, en: g.en, alias: g.alias ?? [] }));
 }
+
+/** Tutti i nomi con cui si può chiamare un GE: principale, inglese e alternativi. */
+export const geNames = (g) => [g.it, g.en, ...(g.alias ?? [])];
 
 // minuscole e senza accenti: "Château" e "chateau" sono la stessa cosa
 const fold = (s) => (s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
@@ -36,6 +39,6 @@ export function searchGe(list, query) {
   const byName = (a, b) => a.it.localeCompare(b.it, 'it', { sensitivity: 'base' });
   const sorted = [...list].sort(byName);
   if (!q) return sorted;
-  const hits = sorted.filter((g) => fold(g.it).includes(q) || fold(g.en).includes(q));
+  const hits = sorted.filter((g) => geNames(g).some((n) => fold(n).includes(q)));
   return [...hits.filter((g) => fold(g.it).startsWith(q)), ...hits.filter((g) => !fold(g.it).startsWith(q))];
 }

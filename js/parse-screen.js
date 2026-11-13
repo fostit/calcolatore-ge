@@ -33,12 +33,15 @@ function levenshtein(a, b) {
 
 const similarity = (a, b) => (a || b ? 1 - levenshtein(a, b) / Math.max(a.length, b.length) : 0);
 
-/** Trova il GE più somigliante al testo letto (nome italiano o inglese). null se nessuno è abbastanza simile. */
+// nome principale, inglese e alternativi (es. "Arc" e "Progetto Arc"), già normalizzati
+const allNames = (g) => [g.it, g.en, ...(g.alias ?? [])].map(normalize);
+
+/** Trova il GE più somigliante al testo letto (con uno qualunque dei suoi nomi). null se nessuno è abbastanza simile. */
 export function matchGe(rawTitle, geList) {
   const t = normalize(rawTitle);
   let best = null;
   for (const g of geList) {
-    for (const name of [normalize(g.it), normalize(g.en)]) {
+    for (const name of allNames(g)) {
       const score = similarity(t, name);
       // sui nomi corti una lettera sbagliata pesa molto: serve più somiglianza (es. "Area" non è "Arca")
       const need = name.length <= 6 ? MIN_SCORE_SHORT : MIN_SCORE;
@@ -63,7 +66,7 @@ export function checkGe({ ge, level, bar }, geList, costOf) {
   if (cands.length === 1) return { key: cands[0].key, corrected: cands[0].key !== key };
   const t = normalize(ge?.raw ?? '');
   if (!t) return { key, corrected: false };
-  const score = (g) => Math.max(similarity(t, normalize(g.it)), similarity(t, normalize(g.en)));
+  const score = (g) => Math.max(...allNames(g).map((n) => similarity(t, n)));
   const best = [...cands].sort((a, b) => score(b) - score(a))[0];
   return { key: best.key, corrected: best.key !== key };
 }
