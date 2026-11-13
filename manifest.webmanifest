@@ -1,0 +1,24 @@
+{
+  "name": "Calcolatore GE",
+  "short_name": "Calc GE",
+  "description": "Quanti PF servono per bloccare una posizione in un GE e se conviene.",
+  "lang": "it",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#2a1c13",
+  "theme_color": "#2a1c13",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ],
+  "share_target": {
+    "action": "./share",
+    "method": "POST",
+    "enctype": "multipart/form-data",
+    "params": {
+      "files": [{ "name": "screenshots", "accept": ["image/*"] }]
+    }
+  }
+}

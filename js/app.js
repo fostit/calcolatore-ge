@@ -365,7 +365,36 @@ async function init() {
   state.geList = listGe(state.data);
   renderHomeArc();
   show('home');
+  registerServiceWorker();
+  const shared = await takeSharedFiles();
   if (state.settings.arcLevel == null) openSettings();
+  if (shared.length) handleFiles(shared);
+}
+
+function registerServiceWorker() {
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('./sw.js').catch(() => { /* senza service worker l'app funziona solo online */ });
+  }
+}
+
+/** Screenshot arrivati dal menu Condividi: il service worker li ha messi da parte, qui li riprendo e li cancello. */
+async function takeSharedFiles() {
+  if (!new URLSearchParams(location.search).has('shared') || !('caches' in window)) return [];
+  history.replaceState(null, '', location.pathname);
+  try {
+    const cache = await caches.open('calc-ge-shared');
+    const files = [];
+    for (const req of await cache.keys()) {
+      const res = await cache.match(req);
+      const blob = await res.blob();
+      files.push(new File([blob], `condiviso-${files.length + 1}.png`, { type: blob.type || 'image/png' }));
+      await cache.delete(req);
+    }
+    return files;
+  } catch {
+    homeError('Non sono riuscito a ricevere lo screenshot condiviso: sceglilo con il pulsante qui sotto.');
+    return [];
+  }
 }
 
 init();
