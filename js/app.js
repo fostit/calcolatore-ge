@@ -3,6 +3,8 @@ import { loadData, getLevel, arcPct, listGe } from './data.js';
 import { evaluate, rankingIssues, checkContributions } from './calc.js';
 import { parseScreen, mergeScreens, markMe } from './parse-screen.js';
 import { getSettings, saveSettings } from './settings.js';
+// importato subito (non al primo uso): dopo un aggiornamento non si mescolano file vecchi e nuovi
+import { readImage, getWorker, cropToDataUrl } from './ocr.js';
 
 const $ = (id) => document.getElementById(id);
 const VIEWS = ['home', 'busy', 'data', 'results'];
@@ -42,6 +44,7 @@ function openSettings() {
   $('arc-input').value = state.settings.arcLevel ?? '';
   $('user-input').value = state.settings.username;
   updateArcPreview();
+  $('dlg-settings').returnValue = ''; // il tasto Indietro di Android chiude senza salvare
   $('dlg-settings').showModal();
 }
 
@@ -90,7 +93,6 @@ export async function handleFiles(files) {
   const chosen = files.slice(0, 2);
   show('busy');
   try {
-    const { readImage, getWorker } = await import('./ocr.js');
     $('busy-text').textContent = 'Preparo il lettore di testo…';
     await getWorker();
     const screens = [];
@@ -105,21 +107,19 @@ export async function handleFiles(files) {
     }
     const merged = mergeScreens(screens);
     if (merged.error) throw new Error(merged.error);
-    startShotForm(merged);
+    await startShotForm(merged, files.length > 2 ? 'Ho usato solo i primi due screenshot.' : null);
   } catch (err) {
     show('home');
     homeError(err.message || 'Non sono riuscito a leggere lo screenshot.');
   }
-  if (files.length > 2) homeError('Ho usato solo i primi due screenshot.');
 }
 
 async function cropOf(part) {
   if (!part?.bbox || part.img == null) return null;
-  const { cropToDataUrl } = await import('./ocr.js');
   return cropToDataUrl(state.bitmaps[part.img], part.bbox);
 }
 
-async function startShotForm(m) {
+async function startShotForm(m, notice = null) {
   const rows = await Promise.all(m.rows.map(async (r) => ({ ...r, crop: await cropOf(r) })));
   state.form = {
     mode: 'shot',
@@ -130,6 +130,7 @@ async function startShotForm(m) {
     crops: { title: await cropOf(m.ge), level: await cropOf(m.level), bar: await cropOf(m.bar) },
     rows: markMe(rows, state.settings.username),
     unsure: { level: (m.level?.conf ?? 0) < 80, done: (m.bar?.conf ?? 0) < 80 },
+    notice,
   };
   state.override = false;
   renderData();
@@ -200,11 +201,12 @@ function renderRows() {
     const name = r.isOwner ? `${escapeHtml(r.name || 'Proprietario')} <small>(proprietario)</small>`
       : r.name ? escapeHtml(r.name) : (f.mode === 'manual' ? `Posizione ${r.position}` : 'Libera');
     const nameCls = r.name || r.isOwner ? 'name' : 'name empty';
+    const conflict = r.conflictFp != null ? ` <small>(nell'altro screenshot: ${r.conflictFp})</small>` : '';
     const star = r.isOwner ? '<span></span>'
       : `<button class="star" data-me="${i}" aria-label="Questa riga sono io" aria-pressed="${r.isMe}">${r.isMe ? '★' : '☆'}</button>`;
     return `<li class="${cls}">
       ${pos}
-      <span class="who"><span class="${nameCls}">${name}</span>${r.crop ? `<img class="crop" src="${r.crop}" alt="Riga letta nello screenshot">` : ''}</span>
+      <span class="who"><span class="${nameCls}">${name}${conflict}</span>${r.crop ? `<img class="crop" src="${r.crop}" alt="Riga letta nello screenshot">` : ''}</span>
       <input type="number" inputmode="numeric" min="0" data-fp="${i}" value="${r.fp}" aria-label="PF di ${escapeHtml(r.name || 'posizione ' + r.position)}" placeholder="0">
       ${star}
     </li>`;
@@ -226,7 +228,10 @@ function renderCheck() {
   } else if (exp == null) {
     check.className = 'check bad';
     check.textContent = 'Livello non valido.';
-  } else if (f.done === '' || !Number.isInteger(Number(f.done)) || Number(f.done) < 0) {
+  } else if (f.done !== '' && (!Number.isInteger(Number(f.done)) || Number(f.done) < 0)) {
+    check.className = 'check bad';
+    check.textContent = 'I PF già versati devono essere un numero intero, senza virgole.';
+  } else if (f.done === '') {
     check.className = 'check bad';
     check.textContent = f.mode === 'shot'
       ? 'Barra non letta: scrivi i PF già versati (il numero prima della / nella barra verde).'
@@ -254,6 +259,7 @@ function renderCheck() {
       else if (c.status === 'partial') notes.push(`Non vedo tutta la classifica (visibili ${c.sum} PF su ${c.done}): le posizioni sotto l'ultima riga non si possono verificare.`);
       else problems.push(`La somma dei PF in classifica (${c.sum}) non torna con i PF versati (${c.done}): c'è un numero letto male. Controlla le righe e la barra.`);
     }
+    if (f.notice) notes.push(f.notice);
     if (f.unsure.level || f.unsure.done) notes.push('Lettura incerta di livello o PF versati: controllali con il ritaglio.');
     check.className = problems.length ? 'check bad' : 'check ok';
     check.innerHTML = [...problems, ...notes, ...good].map((t) => `<span class="check-line">${escapeHtml(t)}</span>`).join('');
@@ -352,6 +358,7 @@ function renderResults() {
   $('res-title').textContent = `${g.it}, livello ${Number(f.level)} → ${Number(f.level) + 1}`;
   $('res-meta').textContent = `Mancano ${remaining} PF. Arca livello ${state.settings.arcLevel}: premi ${fmtPct(pct)}.`;
 
+  $('res-override').hidden = !state.override;
   const cur = $('res-current');
   cur.hidden = !res.current;
   if (res.current) {
@@ -400,7 +407,11 @@ function renderResults() {
 }
 
 $('btn-edit').addEventListener('click', () => show('data'));
-$('btn-new').addEventListener('click', () => { state.form = null; show('home'); });
+$('btn-new').addEventListener('click', () => {
+  if (state.reloadPending) { location.reload(); return; }
+  state.form = null;
+  show('home');
+});
 
 // ---------- avvio ----------
 async function init() {
@@ -420,9 +431,15 @@ async function init() {
 }
 
 function registerServiceWorker() {
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('./sw.js').catch(() => { /* senza service worker l'app funziona solo online */ });
-  }
+  if (!('serviceWorker' in navigator)) return;
+  const hadController = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.register('./sw.js').catch(() => { /* senza service worker l'app funziona solo online */ });
+  // è arrivata una versione nuova: ricarico, ma solo dalla home per non perdere i dati che stai controllando
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadController) return; // prima installazione: niente da ricaricare
+    if (state.view === 'home') location.reload();
+    else state.reloadPending = true;
+  });
 }
 
 /** Screenshot arrivati dal menu Condividi: il service worker li ha messi da parte, qui li riprendo e li cancello. */
@@ -432,7 +449,8 @@ async function takeSharedFiles() {
   try {
     const cache = await caches.open('calc-ge-shared');
     const files = [];
-    for (const req of await cache.keys()) {
+    const keys = (await cache.keys()).sort((a, b) => Number(a.url.split("/").pop()) - Number(b.url.split("/").pop()));
+    for (const req of keys) {
       const res = await cache.match(req);
       const blob = await res.blob();
       files.push(new File([blob], `condiviso-${files.length + 1}.png`, { type: blob.type || 'image/png' }));

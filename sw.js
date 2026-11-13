@@ -1,6 +1,6 @@
 // Service worker: tiene l'app nel telefono (funziona offline) e riceve gli screenshot dal menu Condividi.
-// A ogni pubblicazione con modifiche AUMENTA il numero di VERSION: è così che il telefono scarica la versione nuova.
-const VERSION = 'calc-ge-v2';
+// VERSION la calcola da solo tools/pubblica.py dal contenuto dei file: non modificarla a mano.
+const VERSION = 'calc-ge-d915c6ad1f';
 const SHARED = 'calc-ge-shared';
 
 const FILES = [
@@ -45,8 +45,10 @@ async function receiveShare(request) {
   const files = form.getAll('screenshots').filter((f) => f && f.size);
   const cache = await caches.open(SHARED);
   for (const key of await cache.keys()) await cache.delete(key);
-  await Promise.all(files.slice(0, 2).map((f, i) =>
-    cache.put(`shared/${i}`, new Response(f, { headers: { 'content-type': f.type || 'image/png' } }))));
+  // uno dopo l'altro, così l'ordine resta quello scelto (l'app poi usa i primi due e avvisa se ce ne sono di più)
+  for (const [i, f] of files.entries()) {
+    await cache.put(`shared/${i}`, new Response(f, { headers: { 'content-type': f.type || 'image/png' } }));
+  }
   return Response.redirect(new URL('./?shared=1', self.registration.scope).href, 303);
 }
 
