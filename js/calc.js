@@ -213,3 +213,79 @@ export function evaluate(input) {
 
   return { current, rows };
 }
+
+// ---------- Il mio GE (catena 1.9) ----------
+//
+// Simone è il proprietario: i membri della gilda pagano premio × 1,9 e non si scavalcano tra loro.
+// Il pericolo sono i ninja (esterni). Un membro con c PF è al sicuro se n + R ≤ c, con n = PF del ninja
+// più forte sotto di lui (0 = un esterno nuovo) e R = PF che mancano. A parità resta davanti chi c'era prima.
+
+/** Quota 1,9 di una posizione: per difetto, con interi (30 → 57, mai 56 per errori di virgola). */
+export function ownGeQuota(base) {
+  return Math.floor((base * 19) / 10);
+}
+
+const rankedRows = (rows) => rows
+  .filter((r) => !r.isOwner && r.position != null)
+  .map((r) => ({ ...r, fp: Number(r.fp) || 0 }));
+
+/**
+ * Posizioni da vedere prima di poter calcolare: servono tutte quelle da P1 fino alla prima libera.
+ * Se la prima libera non si vede (classifica tagliata in basso), serve la posizione subito sotto.
+ */
+export function ownGeNeed(rows, { complete = false } = {}) {
+  const ranked = rankedRows(rows);
+  const visible = new Set(ranked.map((r) => r.position));
+  const firstFree = firstFreePosition(ranked, complete);
+  if (firstFree == null) {
+    return { ks: [visible.size ? Math.max(...visible) + 1 : 1], direction: 'down' };
+  }
+  const ks = [];
+  for (let k = 1; k < firstFree; k++) if (!visible.has(k)) ks.push(k);
+  if (!ks.length) return { ks, direction: null };
+  const lo = Math.min(...visible);
+  const hi = Math.max(...visible);
+  const up = ks.some((k) => k < lo);
+  const down = ks.some((k) => k > hi);
+  return { ks, direction: up && down ? 'both' : up ? 'up' : 'down' };
+}
+
+/**
+ * Quanti PF deve versare il proprietario perché i membri siano al sicuro dai ninja.
+ * contributors: [{ name, fp, position, isOwner, ninja }]. Le righe con 0 PF sono posizioni libere.
+ */
+export function planOwnGe({ remaining, rewards, contributors = [], complete = false }) {
+  const quotas = rewards.map(ownGeQuota);
+  const need = ownGeNeed(contributors, { complete });
+  if (need.ks.length) {
+    return { quotas, need, members: null, protectNow: null, next: null, protectAndPrepare: null, nextWouldClose: null };
+  }
+  const ranked = rankedRows(contributors).sort((a, b) => a.position - b.position);
+  const occupied = ranked.filter((r) => r.fp > 0);
+  let limitNow = Infinity; // R*1: quanti PF possono restare con tutti i presenti al sicuro
+  const members = occupied.map((r) => {
+    const ninja = !!r.ninja;
+    if (ninja) return { position: r.position, name: r.name, fp: r.fp, ninja, safe: null, impossible: false };
+    const threat = Math.max(0, ...occupied.filter((o) => o.ninja && o.position > r.position).map((o) => o.fp));
+    const room = r.fp - threat;
+    const impossible = room <= 0; // si protegge solo chiudendo il GE: lo si esclude dal calcolo
+    if (!impossible) limitNow = Math.min(limitNow, room);
+    return { position: r.position, name: r.name, fp: r.fp, ninja, safe: threat + remaining <= r.fp, impossible };
+  });
+  const firstFree = firstFreePosition(ranked, complete);
+  const next = firstFree != null && (rewards[firstFree - 1] ?? 0) > 0
+    ? { position: firstFree, quota: quotas[firstFree - 1] }
+    : null;
+  const protectNow = Math.max(0, remaining - limitNow);
+  if (!next) return { quotas, need, members, protectNow, next, protectAndPrepare: null, nextWouldClose: false };
+  const limit = Math.min(limitNow, 2 * next.quota);
+  return {
+    quotas,
+    need,
+    members,
+    protectNow,
+    next,
+    protectAndPrepare: Math.max(0, remaining - limit),
+    nextWouldClose: Math.min(remaining, limit) < next.quota,
+  };
+}
