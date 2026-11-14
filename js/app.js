@@ -1,7 +1,7 @@
 // Collega l'interfaccia ai moduli di calcolo, dati e lettura.
 import { loadData, getLevel, arcPct, listGe, searchGe } from './data.js';
-import { evaluate, rankingIssues, checkContributions, neededPositions } from './calc.js';
-import { parseScreen, mergeScreens, markMe, checkGe } from './parse-screen.js';
+import { evaluate, rankingIssues, checkContributions, neededPositions, ownGeNeed, planOwnGe } from './calc.js';
+import { parseScreen, mergeScreens, markMe, checkGe, isOwnGe } from './parse-screen.js';
 import { getSettings, saveSettings } from './settings.js';
 // importato subito (non al primo uso): dopo un aggiornamento non si mescolano file vecchi e nuovi
 import { readImage, getWorker, cropToDataUrl } from './ocr.js';
@@ -217,6 +217,7 @@ async function startShotForm(m, notice = null) {
     totalRead: m.bar?.total ?? null,
     crops: { title: await cropOf(m.ge), level: await cropOf(m.level), bar: await cropOf(m.bar) },
     rows: markMe(rows, state.settings.username),
+    ownGe: isOwnGe(rows, state.settings.username),
     unsure: { level: (m.level?.conf ?? 0) < 80, done: (m.bar?.conf ?? 0) < 80 },
     notice,
   };
@@ -240,7 +241,7 @@ function manualRows(geKey, level, previous = []) {
 }
 
 $('btn-manual').addEventListener('click', () => {
-  state.form = { mode: 'manual', geKey: '', level: '', done: '', totalRead: null, crops: {}, rows: manualRows('', ''), unsure: {} };
+  state.form = { mode: 'manual', geKey: '', level: '', done: '', totalRead: null, crops: {}, rows: manualRows('', ''), unsure: {}, ownGe: false };
   state.override = false;
   renderData();
   show('data');
@@ -270,6 +271,7 @@ function renderData() {
   setCrop('crop-title', f.crops.title);
   setCrop('crop-level', f.crops.level);
   setCrop('crop-bar', f.crops.bar);
+  $('own-ge').checked = !!f.ownGe;
   $('rows-hint').hidden = false;
   $('data-error').hidden = true;
   renderRows();
@@ -282,15 +284,22 @@ function escapeHtml(s) {
 
 function renderRows() {
   const f = state.form;
+  $('rows-hint').textContent = f.ownGe
+    ? 'Tocca 🥷 su chi non è della gilda: non verrà protetto.'
+    : 'Tocca ☆ sulla tua riga se hai già versato PF in questo GE.';
   $('rows').innerHTML = f.rows.map((r, i) => {
-    const cls = ['row', r.uncertain ? 'uncertain' : '', r.isMe ? 'me' : ''].join(' ');
+    const cls = ['row', r.uncertain ? 'uncertain' : '', r.isMe && !f.ownGe ? 'me' : '', r.ninja && f.ownGe ? 'ninja' : ''].join(' ');
     const pos = f.mode === 'manual' ? `<span class="pos">${r.position}</span>`
       : `<input class="pos" type="number" inputmode="numeric" min="1" max="99" data-pos="${i}" value="${r.isOwner ? '' : r.position}" placeholder="♛" aria-label="Posizione (vuoto = proprietario)">`;
     const name = r.isOwner ? `${escapeHtml(r.name || 'Proprietario')} <small>(proprietario)</small>`
       : r.name ? escapeHtml(r.name) : (f.mode === 'manual' ? `Posizione ${r.position}` : 'Libera');
     const nameCls = r.name || r.isOwner ? 'name' : 'name empty';
     const conflict = r.conflictFp != null ? ` <small>(nell'altro screenshot: ${r.conflictFp})</small>` : '';
-    const star = r.isOwner ? '<span></span>'
+    const star = f.ownGe
+      ? (!r.isOwner
+        ? `<button class="ninja" data-ninja="${i}" aria-label="Segna come ninja (non della gilda)" aria-pressed="${!!r.ninja}">🥷</button>`
+        : '<span></span>')
+      : r.isOwner ? '<span></span>'
       : `<button class="star" data-me="${i}" aria-label="Questa riga sono io" aria-pressed="${r.isMe}">${r.isMe ? '★' : '☆'}</button>`;
     return `<li class="${cls}">
       ${pos}
@@ -349,7 +358,8 @@ function renderCheck() {
       else if (c.status !== 'partial') problems.push(`La somma dei PF in classifica (${c.sum}) non torna con i PF versati (${c.done}): c'è un numero letto male. Controlla le righe e la barra.`);
     }
     if (f.notice) notes.push(f.notice);
-    if (f.mode === 'shot') todoNeed = neededPositions(f.rows, getLevel(state.data, f.geKey, Number(f.level) + 1).fp, { complete: isComplete(f) });
+    if (f.mode === 'shot' && f.ownGe) todoNeed = ownGeNeed(f.rows.map((r) => ({ ...r, fp: toInt(r.fp) })), { complete: isComplete(f) });
+    else if (f.mode === 'shot') todoNeed = neededPositions(f.rows, getLevel(state.data, f.geKey, Number(f.level) + 1).fp, { complete: isComplete(f) });
     if (f.unsure.level || f.unsure.done) notes.push('Lettura incerta di livello o PF versati: controllali con il ritaglio.');
     check.className = problems.length ? 'check bad' : 'check ok';
     check.innerHTML = [...problems, ...notes, ...good].map((t) => `<span class="check-line">${escapeHtml(t)}</span>`).join('');
@@ -450,6 +460,7 @@ $('level-input').addEventListener('input', (e) => {
   renderCheck();
 });
 $('done-input').addEventListener('input', (e) => { state.form.done = e.target.value === '' ? '' : Number(e.target.value); renderCheck(); });
+$('own-ge').addEventListener('change', (e) => { state.form.ownGe = e.target.checked; renderRows(); renderCheck(); });
 $('override').addEventListener('change', (e) => { state.override = e.target.checked; renderCheck(); });
 
 $('rows').addEventListener('input', (e) => {
@@ -473,6 +484,14 @@ $('rows').addEventListener('change', (e) => {
   renderCheck();
 });
 $('rows').addEventListener('click', (e) => {
+  const ninja = e.target.closest('[data-ninja]');
+  if (ninja) {
+    const row = state.form.rows[Number(ninja.dataset.ninja)];
+    row.ninja = !row.ninja;
+    renderRows();
+    renderCheck();
+    return;
+  }
   const star = e.target.closest('[data-me]');
   if (star) {
     const i = Number(star.dataset.me);
@@ -494,7 +513,8 @@ function zoom(src) {
 
 // ---------- calcolo e risultati ----------
 $('btn-calc').addEventListener('click', () => {
-  if (state.settings.arcLevel == null) { openSettings(); return; }
+  // il proprio GE non usa l'Arca: le quote 1,9 sono fisse
+  if (!state.form.ownGe && state.settings.arcLevel == null) { openSettings(); return; }
   renderResults();
   show('results');
 });

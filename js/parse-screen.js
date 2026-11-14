@@ -260,3 +260,9 @@ export function markMe(rows, username) {
   const u = (username ?? '').trim().toLowerCase();
   return rows.map((r) => ({ ...r, isMe: !!u && !r.isOwner && (r.name ?? '').trim().toLowerCase() === u }));
 }
+
+/** Il GE è tuo: la riga del proprietario ha ESATTAMENTE il nome utente (maiuscole escluse). */
+export function isOwnGe(rows, username) {
+  const u = (username ?? '').trim().toLowerCase();
+  return !!u && rows.some((r) => r.isOwner && (r.name ?? '').trim().toLowerCase() === u);
+}
