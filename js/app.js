@@ -525,6 +525,12 @@ function signed(n) {
 
 function renderResults() {
   const f = state.form;
+  const own = !!f.ownGe;
+  // .res-head e .results hanno display: grid, che vince sull'attributo hidden
+  document.querySelector('.res-head').style.display = own ? 'none' : '';
+  $('results').style.display = own ? 'none' : '';
+  $('own-results').hidden = !own;
+  if (own) { renderOwnResults(); return; }
   const g = state.data.ge[f.geKey];
   const lv = getLevel(state.data, f.geKey, Number(f.level) + 1);
   const pct = arcPct(state.data, state.settings.arcLevel) ?? 0;
@@ -601,6 +607,55 @@ function renderResults() {
       ${notes.map((n) => `<p class="note">${n}</p>`).join('')}
     </li>`;
   }).join('');
+}
+
+/** Il mio GE: quanti PF versare perché i membri della catena 1.9 siano al sicuro dai ninja. */
+function renderOwnResults() {
+  const f = state.form;
+  const g = state.data.ge[f.geKey];
+  const L = Number(f.level);
+  const lv = getLevel(state.data, f.geKey, L + 1);
+  const remaining = lv.cost - toInt(f.done);
+  const plan = planOwnGe({
+    remaining,
+    rewards: lv.fp,
+    complete: f.mode === 'manual' || isComplete(f),
+    contributors: f.rows.map((r) => ({
+      name: r.name, fp: toInt(r.fp), isOwner: r.isOwner, position: r.isOwner ? null : r.position, ninja: !!r.ninja,
+    })),
+  });
+  const quotes = plan.quotas.flatMap((q, i) => (lv.fp[i] > 0 ? [`P${i + 1} ${q}`] : [])).join(' · ');
+  $('res-title').textContent = `Il tuo GE · ${g.it}, livello ${L} → ${L + 1}`;
+  $('res-meta').textContent = `Mancano ${remaining} PF. Quote 1,9: ${quotes}`;
+  $('res-override').hidden = !state.override;
+  $('res-current').hidden = true;
+  renderTodo('res-', f.mode === 'shot' ? plan.need : { ks: [] });
+  const box = $('own-results');
+  if (plan.need.ks.length) { box.innerHTML = ''; return; }
+
+  const who = (m) => escapeHtml(m.name || `Posizione ${m.position}`);
+  const pay = (n) => (n > 0 ? `versa <b>${n} PF</b>` : 'non serve versare');
+  const members = plan.members.map((m) => {
+    const cls = m.ninja ? 'ninja' : m.safe ? 'ok' : 'bad';
+    const status = m.ninja ? 'ninja, non protetto' : m.safe ? '✅ al sicuro' : '⚠️ non al sicuro';
+    return `<li class="own-m ${cls}"><span class="p">P${m.position}</span>${who(m)} · ${m.fp} PF ${status}</li>`;
+  }).join('');
+  const lines = [];
+  for (const m of plan.members.filter((x) => x.impossible)) {
+    lines.push(`<p class="error">Per proteggere ${who(m)} dovresti chiudere il GE: lo escludo dal calcolo.</p>`);
+  }
+  if (plan.members.some((m) => !m.ninja && !m.impossible)) {
+    lines.push(`<p class="own-pay">Per proteggere chi c'è: ${pay(plan.protectNow)}</p>`);
+  }
+  if (plan.next) {
+    lines.push(`<p class="own-pay">Per preparare anche P${plan.next.position} (quota ${plan.next.quota}): ${pay(plan.protectAndPrepare)}</p>`);
+  } else {
+    lines.push('<p class="own-pay">Non ci sono altre posizioni con premio: niente da preparare.</p>');
+  }
+  if (plan.nextWouldClose) {
+    lines.push(`<p class="error">Attenzione: con i PF che restano, chi prende P${plan.next.position} chiuderebbe il GE versando meno della quota (${plan.next.quota}).</p>`);
+  }
+  box.innerHTML = (members ? `<ul class="own-members">${members}</ul>` : '') + lines.join('');
 }
 
 $('btn-edit').addEventListener('click', () => show('data'));

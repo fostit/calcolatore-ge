@@ -178,6 +178,14 @@ input.unsure { border-color: var(--warn); background: #4a3a1a; }
 .res .why { grid-column: 2 / -1; font-size: 16px; color: var(--muted); }
 .res.off .why { text-decoration: line-through; text-decoration-color: var(--grain); }
 .res .note { margin: 6px 0 0 50px; font-size: 14px; color: var(--muted); }
+.own-members { list-style: none; margin: 0 0 12px; padding: 0; display: grid; gap: 8px; }
+.own-m { padding: 10px 12px; border-radius: var(--radius-s); background: var(--wood-2); border-left: 5px solid var(--warn); }
+.own-m.ok { border-left-color: var(--patina); }
+.own-m.ninja { border-left-color: var(--grain); color: var(--muted); }
+.own-m .p { font-weight: 700; color: var(--copper-hi); margin-right: 6px; }
+.own-pay { margin: 0 0 8px; padding: 12px; border-radius: var(--radius-l); background: var(--wood-2); font-size: 17px; }
+.own-pay b { font-size: 24px; color: var(--copper-hi); }
+#own-results .error { margin: 0 0 8px; }
 .res-actions { display: grid; grid-template-columns: 1fr 1.4fr; gap: 10px; margin-top: 18px; align-items: end; }
 
 /* DIALOGHI */
