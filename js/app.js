@@ -633,12 +633,12 @@ function renderOwnResults() {
   const box = $('own-results');
   if (plan.need.ks.length) { box.innerHTML = ''; return; }
 
-  const who = (m) => escapeHtml(m.name || `Posizione ${m.position}`);
+  const who = (m) => escapeHtml(m.name || `P${m.position}`);
   const pay = (n) => (n > 0 ? `versa <b>${n} PF</b>` : 'non serve versare');
   const members = plan.members.map((m) => {
     const cls = m.ninja ? 'ninja' : m.safe ? 'ok' : 'bad';
     const status = m.ninja ? 'ninja, non protetto' : m.safe ? '✅ al sicuro' : '⚠️ non al sicuro';
-    return `<li class="own-m ${cls}"><span class="p">P${m.position}</span>${who(m)} · ${m.fp} PF ${status}</li>`;
+    return `<li class="own-m ${cls}"><span class="p">P${m.position}</span>${m.name ? `${escapeHtml(m.name)} · ` : ''}${m.fp} PF ${status}</li>`;
   }).join('');
   const lines = [];
   for (const m of plan.members.filter((x) => x.impossible)) {
