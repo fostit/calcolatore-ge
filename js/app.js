@@ -621,7 +621,7 @@ function renderOwnResults() {
     rewards: lv.fp,
     complete: f.mode === 'manual' || isComplete(f),
     contributors: f.rows.map((r) => ({
-      name: r.name, fp: toInt(r.fp), isOwner: r.isOwner, position: r.isOwner ? null : r.position, ninja: !!r.ninja,
+      name: r.name, fp: toInt(r.fp), isOwner: r.isOwner, position: r.isOwner ? null : r.position, ninja: !!r.ninja, cover: r.cover,
     })),
   });
   const quotes = plan.quotas.flatMap((q, i) => (lv.fp[i] > 0 ? [`P${i + 1} ${q}`] : [])).join(' · ');
@@ -636,15 +636,17 @@ function renderOwnResults() {
   const who = (m) => escapeHtml(m.name || `P${m.position}`);
   const pay = (n) => (n > 0 ? `versa <b>${n} PF</b>` : 'non serve versare');
   const members = plan.members.map((m) => {
-    const cls = m.ninja ? 'ninja' : m.safe ? 'ok' : 'bad';
-    const status = m.ninja ? 'ninja, non protetto' : m.safe ? '✅ al sicuro' : '⚠️ non al sicuro';
-    return `<li class="own-m ${cls}"><span class="p">P${m.position}</span>${m.name ? `${escapeHtml(m.name)} · ` : ''}${m.fp} PF ${status}</li>`;
+    const cls = m.ninja ? 'ninja' : !m.covered ? 'off' : m.safe ? 'ok' : 'bad';
+    const status = m.ninja ? 'ninja, non protetto' : !m.covered ? 'non coperto' : m.safe ? '✅ al sicuro' : '⚠️ non al sicuro';
+    const under = !m.ninja && m.underQuota ? `<span class="under">⚠️ sotto quota: ${m.fp} su ${m.quota}</span>` : '';
+    const box = m.ninja ? '' : `<label class="cover"><input type="checkbox" data-cover="${m.index}"${m.covered ? ' checked' : ''}> Copri</label>`;
+    return `<li class="own-m ${cls}${under ? ' under-quota' : ''}"><span class="own-who"><span class="p">P${m.position}</span>${m.name ? `${escapeHtml(m.name)} · ` : ''}${m.fp} PF ${status}${under}</span>${box}</li>`;
   }).join('');
   const lines = [];
-  for (const m of plan.members.filter((x) => x.impossible)) {
+  for (const m of plan.members.filter((x) => x.impossible && x.covered)) {
     lines.push(`<p class="error">Per proteggere ${who(m)} dovresti chiudere il GE: lo escludo dal calcolo.</p>`);
   }
-  if (plan.members.some((m) => !m.ninja && !m.impossible)) {
+  if (plan.members.some((m) => m.covered && !m.impossible)) {
     lines.push(`<p class="own-pay">Per proteggere chi c'è: ${pay(plan.protectNow)}</p>`);
   }
   if (plan.next) {
@@ -657,6 +659,14 @@ function renderOwnResults() {
   }
   box.innerHTML = (members ? `<ul class="own-members">${members}</ul>` : '') + lines.join('');
 }
+
+// spunta "Copri": la scelta di Simone resta sulla riga e i numeri si ricalcolano subito
+$('own-results').addEventListener('change', (e) => {
+  const i = e.target.dataset.cover;
+  if (i == null) return;
+  state.form.rows[Number(i)].cover = e.target.checked;
+  renderOwnResults();
+});
 
 $('btn-edit').addEventListener('click', () => show('data'));
 $('btn-new').addEventListener('click', () => {

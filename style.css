@@ -182,7 +182,13 @@ input.unsure { border-color: var(--warn); background: #4a3a1a; }
 .own-m { padding: 10px 12px; border-radius: var(--radius-s); background: var(--wood-2); border-left: 5px solid var(--warn); }
 .own-m.ok { border-left-color: var(--patina); }
 .own-m.ninja { border-left-color: var(--grain); color: var(--muted); }
+.own-m { display: flex; gap: 10px; align-items: center; justify-content: space-between; }
 .own-m .p { font-weight: 700; color: var(--copper-hi); margin-right: 6px; }
+.own-m.off { border-left-color: var(--grain); color: var(--muted); }
+.own-m.under-quota { background: #4a3a1a; }
+.own-m .under { display: block; color: var(--warn); font-size: 14px; margin-top: 2px; }
+.own-m .cover { display: flex; gap: 6px; align-items: center; white-space: nowrap; font-size: 15px; }
+.own-m .cover input { width: 22px; height: 22px; }
 .own-pay { margin: 0 0 8px; padding: 12px; border-radius: var(--radius-l); background: var(--wood-2); font-size: 17px; }
 .own-pay b { font-size: 24px; color: var(--copper-hi); }
 #own-results .error { margin: 0 0 8px; }
