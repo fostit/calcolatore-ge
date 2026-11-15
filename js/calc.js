@@ -226,8 +226,8 @@ export function ownGeQuota(base) {
 }
 
 const rankedRows = (rows) => rows
-  .filter((r) => !r.isOwner && r.position != null)
-  .map((r) => ({ ...r, fp: Number(r.fp) || 0 }));
+  .map((r, index) => ({ ...r, index, fp: Number(r.fp) || 0 }))
+  .filter((r) => !r.isOwner && r.position != null);
 
 /**
  * Posizioni da vedere prima di poter calcolare: servono tutte quelle da P1 fino alla prima libera.
@@ -252,7 +252,9 @@ export function ownGeNeed(rows, { complete = false } = {}) {
 
 /**
  * Quanti PF deve versare il proprietario perché i membri siano al sicuro dai ninja.
- * contributors: [{ name, fp, position, isOwner, ninja }]. Le righe con 0 PF sono posizioni libere.
+ * contributors: [{ name, fp, position, isOwner, ninja, cover }]. Le righe con 0 PF sono posizioni libere.
+ * cover = spunta "Copri" (true/false scelti da Simone; assente = accesa solo se ha versato almeno la quota 1,9
+ * di una posizione con premio). Chi non è coperto non viene protetto e, se non è un ninja, non è una minaccia.
  */
 export function planOwnGe({ remaining, rewards, contributors = [], complete = false }) {
   const quotas = rewards.map(ownGeQuota);
@@ -265,12 +267,16 @@ export function planOwnGe({ remaining, rewards, contributors = [], complete = fa
   let limitNow = Infinity; // R*1: quanti PF possono restare con tutti i presenti al sicuro
   const members = occupied.map((r) => {
     const ninja = !!r.ninja;
-    if (ninja) return { position: r.position, name: r.name, fp: r.fp, ninja, safe: null, impossible: false };
+    const quota = quotas[r.position - 1] ?? 0;
+    const underQuota = r.fp < quota;
+    const base = { index: r.index, position: r.position, name: r.name, fp: r.fp, ninja, quota, underQuota };
+    if (ninja) return { ...base, covered: false, safe: null, impossible: false };
+    const covered = typeof r.cover === 'boolean' ? r.cover : quota > 0 && !underQuota;
     const threat = Math.max(0, ...occupied.filter((o) => o.ninja && o.position > r.position).map((o) => o.fp));
     const room = r.fp - threat;
     const impossible = room <= 0; // si protegge solo chiudendo il GE: lo si esclude dal calcolo
-    if (!impossible) limitNow = Math.min(limitNow, room);
-    return { position: r.position, name: r.name, fp: r.fp, ninja, safe: threat + remaining <= r.fp, impossible };
+    if (covered && !impossible) limitNow = Math.min(limitNow, room);
+    return { ...base, covered, safe: threat + remaining <= r.fp, impossible };
   });
   const firstFree = firstFreePosition(ranked, complete);
   const next = firstFree != null && (rewards[firstFree - 1] ?? 0) > 0
