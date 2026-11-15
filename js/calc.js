@@ -258,9 +258,13 @@ export function ownGeNeed(rows, { complete = false } = {}) {
  */
 export function planOwnGe({ remaining, rewards, contributors = [], complete = false }) {
   const quotas = rewards.map(ownGeQuota);
+  // GE pieno: nessuno può più versare, non c'è niente da proteggere né da preparare
+  if (remaining === 0) {
+    return { quotas, need: { ks: [], direction: null }, full: true, members: null, protectNow: 0, next: null, protectAndPrepare: null, nextWouldClose: false };
+  }
   const need = ownGeNeed(contributors, { complete });
   if (need.ks.length) {
-    return { quotas, need, members: null, protectNow: null, next: null, protectAndPrepare: null, nextWouldClose: null };
+    return { quotas, need, full: false, members: null, protectNow: null, next: null, protectAndPrepare: null, nextWouldClose: null };
   }
   const ranked = rankedRows(contributors).sort((a, b) => a.position - b.position);
   const occupied = ranked.filter((r) => r.fp > 0);
@@ -283,11 +287,12 @@ export function planOwnGe({ remaining, rewards, contributors = [], complete = fa
     ? { position: firstFree, quota: quotas[firstFree - 1] }
     : null;
   const protectNow = Math.max(0, remaining - limitNow);
-  if (!next) return { quotas, need, members, protectNow, next, protectAndPrepare: null, nextWouldClose: false };
+  if (!next) return { quotas, need, full: false, members, protectNow, next, protectAndPrepare: null, nextWouldClose: false };
   const limit = Math.min(limitNow, 2 * next.quota);
   return {
     quotas,
     need,
+    full: false,
     members,
     protectNow,
     next,

@@ -71,6 +71,7 @@ $('dlg-settings').addEventListener('close', () => {
     // la stella messa a mano resta: si ricalcola solo se è cambiato il nome, e solo per gli screenshot
     if (state.form.mode === 'shot' && state.settings.username !== oldUser) {
       state.form.rows = markMe(state.form.rows, state.settings.username);
+      autoOwnGe(state.form);
     }
     if (state.view === 'data') renderData();
     if (state.view === 'results') renderResults();
@@ -130,9 +131,11 @@ function renderTodo(prefix, need) {
     : need.direction === 'both' ? 'prima in alto e poi in basso (in quel caso fai due screenshot)'
       : 'verso il basso';
   $(prefix + 'todo-title').textContent = need.ks.length > 1 ? `Mancano ${what} nello screenshot` : `Manca ${what} nello screenshot`;
-  const why = need.meNeed && need.ks.includes(need.meNeed)
-    ? `Per sapere se la tua posizione è sicura devo vedere chi c'è in P${need.meNeed}.`
-    : 'Senza vederle non posso dirti quanto costano né se ti conviene.';
+  const why = state.form?.ownGe
+    ? 'Per sapere se i membri sono al sicuro devo vedere tutte le posizioni occupate, fino alla prima libera.'
+    : need.meNeed && need.ks.includes(need.meNeed)
+      ? `Per sapere se la tua posizione è sicura devo vedere chi c'è in P${need.meNeed}.`
+      : 'Senza vederle non posso dirti quanto costano né se ti conviene.';
   $(prefix + 'todo-text').innerHTML = `${why}<ol>
     <li>Torna nel gioco, sulla finestra di questo GE.</li>
     <li>Scorri la classifica <b>${where}</b> finché vedi ${what}.</li>
@@ -178,6 +181,7 @@ export async function addFiles(files) {
     // proprietario in cima, poi la classifica in ordine
     f.rows = merged.rows.sort((a, b) => (a.isOwner ? -1 : b.isOwner ? 1 : a.position - b.position));
     if (f.totalRead == null && merged.bar) { f.totalRead = merged.bar.total; f.done = merged.bar.done; }
+    autoOwnGe(f);
     f.notice = null;
     renderData();
     show('data');
@@ -187,6 +191,11 @@ export async function addFiles(files) {
     $('data-error').textContent = err.message || 'Non sono riuscito a leggere lo screenshot aggiunto.';
     $('data-error').hidden = false;
   }
+}
+
+/** "È il mio GE" si accende da solo se compare la tua riga di proprietario, finché non tocchi tu l'interruttore. */
+function autoOwnGe(f) {
+  if (f.mode === 'shot' && !f.ownGeTouched && isOwnGe(f.rows, state.settings.username)) f.ownGe = true;
 }
 
 /** Somma dei PF visibili = PF versati: si vede tutta la classifica. */
@@ -460,7 +469,12 @@ $('level-input').addEventListener('input', (e) => {
   renderCheck();
 });
 $('done-input').addEventListener('input', (e) => { state.form.done = e.target.value === '' ? '' : Number(e.target.value); renderCheck(); });
-$('own-ge').addEventListener('change', (e) => { state.form.ownGe = e.target.checked; renderRows(); renderCheck(); });
+$('own-ge').addEventListener('change', (e) => {
+  state.form.ownGe = e.target.checked;
+  state.form.ownGeTouched = true;
+  renderRows();
+  renderCheck();
+});
 $('override').addEventListener('change', (e) => { state.override = e.target.checked; renderCheck(); });
 
 $('rows').addEventListener('input', (e) => {
@@ -632,6 +646,7 @@ function renderOwnResults() {
   renderTodo('res-', f.mode === 'shot' ? plan.need : { ks: [] });
   const box = $('own-results');
   if (plan.need.ks.length) { box.innerHTML = ''; return; }
+  if (plan.full) { box.innerHTML = `<p class="own-pay">Il GE è già pieno: non c'è niente da versare.</p>`; return; }
 
   const who = (m) => escapeHtml(m.name || `P${m.position}`);
   const pay = (n) => (n > 0 ? `versa <b>${n} PF</b>` : 'non serve versare');
@@ -649,13 +664,12 @@ function renderOwnResults() {
   if (plan.members.some((m) => m.covered && !m.impossible)) {
     lines.push(`<p class="own-pay">Per proteggere chi c'è: ${pay(plan.protectNow)}</p>`);
   }
-  if (plan.next) {
+  if (plan.next && plan.nextWouldClose) {
+    lines.push(`<p class="error">Non posso preparare P${plan.next.position}: con i PF che restano, chi la prende chiuderebbe il GE versando meno della quota (${plan.next.quota}).</p>`);
+  } else if (plan.next) {
     lines.push(`<p class="own-pay">Per preparare anche P${plan.next.position} (quota ${plan.next.quota}): ${pay(plan.protectAndPrepare)}</p>`);
   } else {
     lines.push('<p class="own-pay">Non ci sono altre posizioni con premio: niente da preparare.</p>');
-  }
-  if (plan.nextWouldClose) {
-    lines.push(`<p class="error">Attenzione: con i PF che restano, chi prende P${plan.next.position} chiuderebbe il GE versando meno della quota (${plan.next.quota}).</p>`);
   }
   box.innerHTML = (members ? `<ul class="own-members">${members}</ul>` : '') + lines.join('');
 }
